@@ -69,8 +69,15 @@ class ParquetDeserializer<T : Any>(
             val row = rowGroup.getRow(rowIndex)
             
             val args = parameters.map { param ->
-                row[param.name] ?: if (param.type.isMarkedNullable) null 
-                else throw IllegalStateException("Non-nullable parameter ${param.name} is null")
+                val value = row[param.name]
+                when {
+                    value == null -> if (param.type.isMarkedNullable) null 
+                        else throw IllegalStateException("Non-nullable parameter ${param.name} is null")
+                    // Convert ByteArray to String for String parameters
+                    value is ByteArray && param.type.classifier == String::class -> 
+                        String(value, Charsets.UTF_8)
+                    else -> value
+                }
             }.toTypedArray()
             
             constructor.call(*args)

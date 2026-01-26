@@ -279,7 +279,7 @@ object ThriftDeserializer {
         return String(bytes, Charsets.UTF_8)
     }
     
-    private fun skipField(reader: BinaryReader, fieldType: Int) {
+    internal fun skipField(reader: BinaryReader, fieldType: Int) {
         when (fieldType) {
             1, 2 -> {} // BOOL_TRUE, BOOL_FALSE - no data
             3 -> reader.readByte() // BYTE

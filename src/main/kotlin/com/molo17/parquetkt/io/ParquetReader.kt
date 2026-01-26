@@ -18,6 +18,8 @@
 package com.molo17.parquetkt.io
 
 import com.molo17.parquetkt.compression.CompressionCodecFactory
+import java.io.EOFException
+import java.io.InputStream
 import com.molo17.parquetkt.data.DataColumn
 import com.molo17.parquetkt.data.RowGroup
 import com.molo17.parquetkt.encoding.PlainDecoder
@@ -178,25 +180,8 @@ class ParquetReader(
         // Seek to data page
         file.seek(metadata.dataPageOffset)
         
-        // Read page header
-        val pageHeaderSize = 12 // Simplified: type + uncompressed + compressed size
-        val pageHeaderBytes = ByteArray(pageHeaderSize)
-        file.readFully(pageHeaderBytes)
-        val pageHeader = deserializePageHeader(pageHeaderBytes)
-        
-        // Read definition levels if nullable
-        var definitionLevels: IntArray? = null
-        if (field.isNullable) {
-            val defLevelLength = ByteArray(4)
-            file.readFully(defLevelLength)
-            val length = BinaryReader(ByteArrayInputStream(defLevelLength)).readInt32()
-            
-            val defLevelBytes = ByteArray(length)
-            file.readFully(defLevelBytes)
-            
-            val rleDecoder = RleDecoder(1)
-            definitionLevels = rleDecoder.decode(defLevelBytes, metadata.numValues.toInt())
-        }
+        // Read page header directly from file stream
+        val pageHeader = deserializePageHeaderFromStream(file)
         
         // Read compressed data
         val compressedData = ByteArray(pageHeader.compressedPageSize)
@@ -206,9 +191,30 @@ class ParquetReader(
         val compressor = CompressionCodecFactory.getCompressor(metadata.codec)
         val uncompressedData = compressor.decompress(compressedData, pageHeader.uncompressedPageSize)
         
-        // Decode
+        // Parse definition levels and data from uncompressed page
+        val reader = BinaryReader(ByteArrayInputStream(uncompressedData))
+        var definitionLevels: IntArray? = null
+        var dataOffset = 0
+        var nonNullCount = metadata.numValues.toInt()
+        
+        if (field.isNullable) {
+            // Read definition level length (4-byte little-endian)
+            val defLevelLength = reader.readInt32()
+            dataOffset = 4 + defLevelLength
+            
+            // Read definition level data
+            val defLevelBytes = reader.readBytes(defLevelLength)
+            val rleDecoder = RleDecoder(1)
+            definitionLevels = rleDecoder.decode(defLevelBytes, metadata.numValues.toInt())
+            
+            // Count non-null values (definition level = 1 means value is present)
+            nonNullCount = definitionLevels.count { it == 1 }
+        }
+        
+        // Decode values from remaining data (only non-null values are encoded)
+        val valueData = uncompressedData.copyOfRange(dataOffset, uncompressedData.size)
         val decoder = PlainDecoder(field.dataType)
-        val values = decoder.decode(uncompressedData, metadata.numValues.toInt())
+        val values = decoder.decode(valueData, nonNullCount)
         
         // Reconstruct with nulls if needed
         val finalData = if (definitionLevels != null) {
@@ -242,8 +248,18 @@ class ParquetReader(
         return ThriftDeserializer.deserializeFileMetadata(bytes)
     }
     
-    private fun deserializePageHeader(bytes: ByteArray): PageHeader {
-        val reader = BinaryReader(ByteArrayInputStream(bytes))
+    private fun deserializePageHeaderFromStream(file: RandomAccessFile): PageHeader {
+        // Read PageHeader using a wrapper that reads from RandomAccessFile
+        val fileInputStream = object : InputStream() {
+            override fun read(): Int {
+                return try {
+                    file.readByte().toInt() and 0xFF
+                } catch (e: EOFException) {
+                    -1
+                }
+            }
+        }
+        val reader = BinaryReader(fileInputStream)
         
         var type = PageType.DATA_PAGE
         var uncompressedSize = 0
@@ -266,7 +282,7 @@ class ParquetReader(
             when (fieldId) {
                 1 -> {
                     val thriftValue = reader.readInt32Zigzag()
-                    type = PageType.values().find { it.thriftValue == thriftValue } ?: PageType.DATA_PAGE
+                    type = PageType.values().find { it.value == thriftValue } ?: PageType.DATA_PAGE
                 }
                 2 -> uncompressedSize = reader.readInt32Zigzag()
                 3 -> compressedSize = reader.readInt32Zigzag()

@@ -155,16 +155,64 @@ class ParquetWriter(
         val dataPageOffset = startOffset
         var currentOffset = startOffset
         
-        // Encode and compress data
+        // Encode data (only non-null values)
         val encoder = PlainEncoder(field.dataType)
         val encodedData = encoder.encode(column.definedData as Array<Any>)
         
-        val compressor = CompressionCodecFactory.getCompressor(compressionCodec)
-        val compressedData = compressor.compress(encodedData)
+        // Prepare uncompressed page data
+        val pageDataOutput = ByteArrayOutputStream()
+        val pageWriter = BinaryWriter(pageDataOutput)
         
-        // Use DATA_PAGE (V1) format for simplicity and better compatibility
-        // V1 format: everything (levels + data) is compressed together
-        val totalUncompressedSize = encodedData.size
+        // Write definition levels if nullable
+        if (field.isNullable) {
+            // Generate definition levels if not provided
+            val defLevels = column.definitionLevels ?: run {
+                // Generate definition levels by checking each position
+                val levels = IntArray(column.size)
+                var nonNullIndex = 0
+                val definedData = column.definedData
+                for (i in 0 until column.size) {
+                    // Check if this position has a value by comparing with definedData
+                    if (nonNullIndex < definedData.size) {
+                        // Assume value is present (we'll mark nulls as 0 below)
+                        levels[i] = 1
+                        nonNullIndex++
+                    } else {
+                        levels[i] = 0
+                    }
+                }
+                // Actually, we need to iterate through the original data
+                // Let's use reflection to access the data field
+                val dataField = column.javaClass.getDeclaredField("data")
+                dataField.isAccessible = true
+                @Suppress("UNCHECKED_CAST")
+                val data = dataField.get(column) as Array<Any?>
+                for (i in data.indices) {
+                    levels[i] = if (data[i] == null) 0 else 1
+                }
+                levels
+            }
+            
+            // Encode definition levels using RLE
+            val rleEncoder = com.molo17.parquetkt.encoding.RleEncoder(1)
+            val encodedDefLevels = rleEncoder.encode(defLevels)
+            
+            // Write length and data
+            pageWriter.writeInt32(encodedDefLevels.size)
+            pageWriter.writeBytes(encodedDefLevels)
+        }
+        
+        // Write encoded values
+        pageWriter.writeBytes(encodedData)
+        pageWriter.flush()
+        
+        val uncompressedPageData = pageDataOutput.toByteArray()
+        
+        // Compress the entire page (levels + data)
+        val compressor = CompressionCodecFactory.getCompressor(compressionCodec)
+        val compressedData = compressor.compress(uncompressedPageData)
+        
+        val totalUncompressedSize = uncompressedPageData.size
         val totalCompressedSize = compressedData.size
         
         // Write DATA_PAGE (V1) header

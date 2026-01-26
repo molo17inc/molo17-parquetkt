@@ -104,7 +104,11 @@ class PlainEncoder(private val type: ParquetType) {
     
     private fun encodeByteArrays(values: Array<Any>, writer: BinaryWriter) {
         for (value in values) {
-            val bytes = value as ByteArray
+            val bytes = when (value) {
+                is String -> value.toByteArray(Charsets.UTF_8)
+                is ByteArray -> value
+                else -> throw IllegalArgumentException("Expected String or ByteArray, got ${value::class.simpleName}")
+            }
             writer.writeInt32(bytes.size)
             writer.writeBytes(bytes)
         }
