@@ -1,0 +1,118 @@
+/*
+ * Copyright 2026 MOLO17
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+package com.molo17.parquetkt.encoding
+
+import com.molo17.parquetkt.format.BinaryWriter
+import com.molo17.parquetkt.schema.ParquetType
+import java.io.ByteArrayOutputStream
+
+class PlainEncoder(private val type: ParquetType) {
+    
+    fun encode(values: Array<Any>): ByteArray {
+        // Pre-allocate buffer with estimated size
+        val estimatedSize = when (type) {
+            ParquetType.BOOLEAN -> (values.size + 7) / 8
+            ParquetType.INT32, ParquetType.FLOAT -> values.size * 4
+            ParquetType.INT64, ParquetType.DOUBLE -> values.size * 8
+            ParquetType.INT96 -> values.size * 12
+            else -> values.size * 20 // Estimate for byte arrays
+        }
+        val output = ByteArrayOutputStream(estimatedSize)
+        val writer = BinaryWriter(output)
+        
+        when (type) {
+            ParquetType.BOOLEAN -> encodeBooleans(values, writer)
+            ParquetType.INT32 -> encodeInt32s(values, writer)
+            ParquetType.INT64 -> encodeInt64s(values, writer)
+            ParquetType.INT96 -> encodeInt96s(values, writer)
+            ParquetType.FLOAT -> encodeFloats(values, writer)
+            ParquetType.DOUBLE -> encodeDoubles(values, writer)
+            ParquetType.BYTE_ARRAY -> encodeByteArrays(values, writer)
+            ParquetType.FIXED_LEN_BYTE_ARRAY -> encodeFixedLenByteArrays(values, writer)
+        }
+        
+        writer.flush()
+        return output.toByteArray()
+    }
+    
+    private fun encodeBooleans(values: Array<Any>, writer: BinaryWriter) {
+        var currentByte = 0
+        var bitIndex = 0
+        
+        for (value in values) {
+            if (value as Boolean) {
+                currentByte = currentByte or (1 shl bitIndex)
+            }
+            bitIndex++
+            
+            if (bitIndex == 8) {
+                writer.writeByte(currentByte.toByte())
+                currentByte = 0
+                bitIndex = 0
+            }
+        }
+        
+        if (bitIndex > 0) {
+            writer.writeByte(currentByte.toByte())
+        }
+    }
+    
+    private fun encodeInt32s(values: Array<Any>, writer: BinaryWriter) {
+        for (value in values) {
+            writer.writeInt32(value as Int)
+        }
+    }
+    
+    private fun encodeInt64s(values: Array<Any>, writer: BinaryWriter) {
+        for (value in values) {
+            writer.writeInt64(value as Long)
+        }
+    }
+    
+    private fun encodeInt96s(values: Array<Any>, writer: BinaryWriter) {
+        for (value in values) {
+            writer.writeInt96(value as ByteArray)
+        }
+    }
+    
+    private fun encodeFloats(values: Array<Any>, writer: BinaryWriter) {
+        for (value in values) {
+            writer.writeFloat(value as Float)
+        }
+    }
+    
+    private fun encodeDoubles(values: Array<Any>, writer: BinaryWriter) {
+        for (value in values) {
+            writer.writeDouble(value as Double)
+        }
+    }
+    
+    private fun encodeByteArrays(values: Array<Any>, writer: BinaryWriter) {
+        for (value in values) {
+            val bytes = value as ByteArray
+            writer.writeInt32(bytes.size)
+            writer.writeBytes(bytes)
+        }
+    }
+    
+    private fun encodeFixedLenByteArrays(values: Array<Any>, writer: BinaryWriter) {
+        for (value in values) {
+            writer.writeBytes(value as ByteArray)
+        }
+    }
+}

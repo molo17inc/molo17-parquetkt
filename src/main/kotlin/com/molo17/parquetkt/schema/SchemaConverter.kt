@@ -1,0 +1,139 @@
+/*
+ * Copyright 2026 MOLO17
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+package com.molo17.parquetkt.schema
+
+import com.molo17.parquetkt.thrift.ConvertedType
+import com.molo17.parquetkt.thrift.FieldRepetitionType
+import com.molo17.parquetkt.thrift.SchemaElement
+
+object SchemaConverter {
+    
+    fun toThriftSchema(schema: ParquetSchema): List<SchemaElement> {
+        val elements = mutableListOf<SchemaElement>()
+        
+        // Root element
+        elements.add(SchemaElement(
+            name = "schema",
+            numChildren = schema.fieldCount,
+            repetitionType = null,
+            type = null
+        ))
+        
+        // Add field elements
+        schema.fields.forEach { field ->
+            elements.add(toThriftSchemaElement(field))
+        }
+        
+        return elements
+    }
+    
+    fun fromThriftSchema(elements: List<SchemaElement>): ParquetSchema {
+        require(elements.isNotEmpty()) { "Schema elements cannot be empty" }
+        require(elements[0].name == "schema") { "First element must be root schema" }
+        
+        val fields = elements.drop(1).map { fromThriftSchemaElement(it) }
+        return ParquetSchema.create(fields)
+    }
+    
+    private fun toThriftSchemaElement(field: DataField): SchemaElement {
+        return SchemaElement(
+            type = field.dataType,
+            typeLength = field.length,
+            repetitionType = when (field.repetition) {
+                Repetition.REQUIRED -> FieldRepetitionType.REQUIRED
+                Repetition.OPTIONAL -> FieldRepetitionType.OPTIONAL
+                Repetition.REPEATED -> FieldRepetitionType.REPEATED
+            },
+            name = field.name,
+            numChildren = null,
+            convertedType = toConvertedType(field.logicalType),
+            scale = field.scale,
+            precision = field.precision,
+            fieldId = null
+        )
+    }
+    
+    private fun fromThriftSchemaElement(element: SchemaElement): DataField {
+        return DataField(
+            name = element.name,
+            dataType = element.type ?: throw IllegalArgumentException("Type is required"),
+            logicalType = fromConvertedType(element.convertedType),
+            repetition = when (element.repetitionType) {
+                FieldRepetitionType.REQUIRED -> Repetition.REQUIRED
+                FieldRepetitionType.OPTIONAL -> Repetition.OPTIONAL
+                FieldRepetitionType.REPEATED -> Repetition.REPEATED
+                null -> Repetition.REQUIRED
+            },
+            length = element.typeLength,
+            precision = element.precision,
+            scale = element.scale
+        )
+    }
+    
+    private fun toConvertedType(logicalType: LogicalType): ConvertedType? {
+        return when (logicalType) {
+            LogicalType.NONE -> null
+            LogicalType.STRING -> ConvertedType.UTF8
+            LogicalType.ENUM -> ConvertedType.ENUM
+            LogicalType.DECIMAL -> ConvertedType.DECIMAL
+            LogicalType.DATE -> ConvertedType.DATE
+            LogicalType.TIME_MILLIS -> ConvertedType.TIME_MILLIS
+            LogicalType.TIME_MICROS -> ConvertedType.TIME_MICROS
+            LogicalType.TIMESTAMP_MILLIS -> ConvertedType.TIMESTAMP_MILLIS
+            LogicalType.TIMESTAMP_MICROS -> ConvertedType.TIMESTAMP_MICROS
+            LogicalType.UINT_8 -> ConvertedType.UINT_8
+            LogicalType.UINT_16 -> ConvertedType.UINT_16
+            LogicalType.UINT_32 -> ConvertedType.UINT_32
+            LogicalType.UINT_64 -> ConvertedType.UINT_64
+            LogicalType.INT_8 -> ConvertedType.INT_8
+            LogicalType.INT_16 -> ConvertedType.INT_16
+            LogicalType.INT_32 -> ConvertedType.INT_32
+            LogicalType.INT_64 -> ConvertedType.INT_64
+            LogicalType.JSON -> ConvertedType.JSON
+            LogicalType.BSON -> ConvertedType.BSON
+            LogicalType.UUID -> null
+            LogicalType.INTERVAL -> ConvertedType.INTERVAL
+        }
+    }
+    
+    private fun fromConvertedType(convertedType: ConvertedType?): LogicalType {
+        return when (convertedType) {
+            null -> LogicalType.NONE
+            ConvertedType.UTF8 -> LogicalType.STRING
+            ConvertedType.ENUM -> LogicalType.ENUM
+            ConvertedType.DECIMAL -> LogicalType.DECIMAL
+            ConvertedType.DATE -> LogicalType.DATE
+            ConvertedType.TIME_MILLIS -> LogicalType.TIME_MILLIS
+            ConvertedType.TIME_MICROS -> LogicalType.TIME_MICROS
+            ConvertedType.TIMESTAMP_MILLIS -> LogicalType.TIMESTAMP_MILLIS
+            ConvertedType.TIMESTAMP_MICROS -> LogicalType.TIMESTAMP_MICROS
+            ConvertedType.UINT_8 -> LogicalType.UINT_8
+            ConvertedType.UINT_16 -> LogicalType.UINT_16
+            ConvertedType.UINT_32 -> LogicalType.UINT_32
+            ConvertedType.UINT_64 -> LogicalType.UINT_64
+            ConvertedType.INT_8 -> LogicalType.INT_8
+            ConvertedType.INT_16 -> LogicalType.INT_16
+            ConvertedType.INT_32 -> LogicalType.INT_32
+            ConvertedType.INT_64 -> LogicalType.INT_64
+            ConvertedType.JSON -> LogicalType.JSON
+            ConvertedType.BSON -> LogicalType.BSON
+            ConvertedType.INTERVAL -> LogicalType.INTERVAL
+            ConvertedType.MAP, ConvertedType.MAP_KEY_VALUE, ConvertedType.LIST -> LogicalType.NONE
+        }
+    }
+}
