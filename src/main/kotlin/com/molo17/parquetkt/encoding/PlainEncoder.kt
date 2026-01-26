@@ -74,13 +74,31 @@ class PlainEncoder(private val type: ParquetType) {
     
     private fun encodeInt32s(values: Array<Any>, writer: BinaryWriter) {
         for (value in values) {
-            writer.writeInt32(value as Int)
+            val intValue = when (value) {
+                is Int -> value
+                is java.time.LocalDate -> {
+                    // Convert LocalDate to days since Unix epoch (1970-01-01)
+                    value.toEpochDay().toInt()
+                }
+                else -> value as Int
+            }
+            writer.writeInt32(intValue)
         }
     }
     
     private fun encodeInt64s(values: Array<Any>, writer: BinaryWriter) {
         for (value in values) {
-            writer.writeInt64(value as Long)
+            val longValue = when (value) {
+                is Long -> value
+                is java.time.LocalDateTime -> {
+                    // Convert LocalDateTime to microseconds since Unix epoch (1970-01-01T00:00:00)
+                    val epochSecond = value.atZone(java.time.ZoneOffset.UTC).toEpochSecond()
+                    val nanos = value.nano
+                    epochSecond * 1_000_000L + nanos / 1000L
+                }
+                else -> value as Long
+            }
+            writer.writeInt64(longValue)
         }
     }
     
