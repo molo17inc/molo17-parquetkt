@@ -24,7 +24,12 @@ class RowGroup(
     val columns: List<DataColumn<*>>
 ) {
     val rowCount: Int
-        get() = columns.firstOrNull()?.size ?: 0
+        get() {
+            // For nested types, use the size of non-nested columns
+            // as they represent the actual number of records
+            val nonNestedColumn = columns.firstOrNull { it.repetitionLevels == null }
+            return nonNestedColumn?.size ?: columns.firstOrNull()?.size ?: 0
+        }
     
     val columnCount: Int
         get() = columns.size
@@ -34,9 +39,15 @@ class RowGroup(
             "Number of columns (${columns.size}) must match schema field count (${schema.fieldCount})"
         }
         
-        val firstSize = columns.firstOrNull()?.size ?: 0
-        require(columns.all { it.size == firstSize }) {
-            "All columns must have the same number of rows"
+        // For nested types (lists, maps), columns can have different sizes
+        // because they store flattened values with repetition/definition levels
+        // Only validate that non-nested columns have the same size
+        val nonNestedColumns = columns.filter { it.repetitionLevels == null }
+        if (nonNestedColumns.isNotEmpty()) {
+            val firstSize = nonNestedColumns.first().size
+            require(nonNestedColumns.all { it.size == firstSize }) {
+                "All non-nested columns must have the same number of rows"
+            }
         }
     }
     

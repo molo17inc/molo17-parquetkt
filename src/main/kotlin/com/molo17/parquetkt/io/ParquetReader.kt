@@ -193,22 +193,49 @@ class ParquetReader(
         
         // Parse definition levels and data from uncompressed page
         val reader = BinaryReader(ByteArrayInputStream(uncompressedData))
-        var definitionLevels: IntArray? = null
+        // Read repetition levels if present (for nested types)
+        var repetitionLevels: IntArray? = null
         var dataOffset = 0
+        
+        if (field.maxRepetitionLevel > 0) {
+            // Read repetition level length
+            val repLevelLength = reader.readInt32()
+            dataOffset += 4 + repLevelLength
+            
+            // Read and decode repetition levels
+            val repLevelBytes = reader.readBytes(repLevelLength)
+            repetitionLevels = com.molo17.parquetkt.encoding.LevelEncoder.decodeLevels(
+                repLevelBytes, 
+                metadata.numValues.toInt()
+            ).toIntArray()
+        }
+        
+        // Read definition levels if nullable or has nested structure
+        var definitionLevels: IntArray? = null
         var nonNullCount = metadata.numValues.toInt()
         
-        if (field.isNullable) {
-            // Read definition level length (4-byte little-endian)
+        if (field.maxDefinitionLevel > 0 || field.isNullable) {
+            // Read definition level length
             val defLevelLength = reader.readInt32()
-            dataOffset = 4 + defLevelLength
+            dataOffset += 4 + defLevelLength
             
             // Read definition level data
             val defLevelBytes = reader.readBytes(defLevelLength)
-            val rleDecoder = RleDecoder(1)
-            definitionLevels = rleDecoder.decode(defLevelBytes, metadata.numValues.toInt())
             
-            // Count non-null values (definition level = 1 means value is present)
-            nonNullCount = definitionLevels.count { it == 1 }
+            // Try LevelEncoder first (for nested types), fall back to RLE
+            definitionLevels = try {
+                com.molo17.parquetkt.encoding.LevelEncoder.decodeLevels(
+                    defLevelBytes,
+                    metadata.numValues.toInt()
+                ).toIntArray()
+            } catch (e: Exception) {
+                // Fall back to RLE decoder for backward compatibility
+                val rleDecoder = RleDecoder(1)
+                rleDecoder.decode(defLevelBytes, metadata.numValues.toInt())
+            }
+            
+            // Count non-null values (definition level > 0 means value is present)
+            nonNullCount = definitionLevels?.count { it > 0 } ?: metadata.numValues.toInt()
         }
         
         // Decode values from remaining data (only non-null values are encoded)
@@ -227,7 +254,8 @@ class ParquetReader(
         return DataColumn(
             field = field,
             data = finalData as Array<Any?>,
-            definitionLevels = definitionLevels
+            definitionLevels = definitionLevels,
+            repetitionLevels = repetitionLevels
         ) as DataColumn<*>
     }
     

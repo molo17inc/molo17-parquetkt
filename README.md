@@ -380,25 +380,20 @@ The library has comprehensive test coverage with **58/58 tests passing (100%)**:
 - ✅ Support for all 8 Parquet primitive types
 - ✅ Nullable fields with definition levels
 - ✅ String encoding/decoding (UTF-8)
-- ✅ Logical types (DATE, TIMESTAMP)
-- ✅ Multiple compression codecs (SNAPPY, GZIP, ZSTD, UNCOMPRESSED)
-- ✅ High-level object serialization API
-- ✅ Schema reflection from data classes
-- ✅ Coroutines support with suspend functions and Flow API
-- ✅ Basic repeated fields (simple lists of primitives)
-- ✅ Nested types schema foundation (NestedField hierarchy)
-- ✅ 3-level list/map schema structures
-- ✅ Nested schema reflection (List<T>, Map<K,V>, nested classes)
-- ✅ Thrift serialization for nested schemas
-- ✅ Repetition/definition level calculation
-- ✅ Nested data flattening to columnar format
 
 ### In Progress 🚧
 
-- 🚧 Nested data encoding with PlainEncoder
-- 🚧 Nested data decoding with PlainDecoder
-- 🚧 List/Map/Struct serialization in ParquetSerializer
-- 🚧 End-to-end nested types write/read support
+- 🚧 **Nested types (Lists, Maps, Structs)** - ~85% complete, core infrastructure ready
+  - ✅ Hierarchical schema structures (NestedField)
+  - ✅ Level calculation and data flattening
+  - ✅ Data reconstruction from columnar format
+  - ✅ Level encoding/decoding
+  - ✅ Schema reflection for nested types
+  - ✅ Thrift serialization
+  - ✅ ParquetWriter integration (repetition & definition levels)
+  - ✅ ParquetReader integration (level reading & reconstruction)
+  - 🚧 ParquetSerializer extension for List<T> properties
+  - 🚧 End-to-end file I/O testing
 - 🚧 Predicate pushdown for efficient filtering
 - 🚧 Statistics support
 
