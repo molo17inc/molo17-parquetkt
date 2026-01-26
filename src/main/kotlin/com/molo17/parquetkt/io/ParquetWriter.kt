@@ -163,41 +163,37 @@ class ParquetWriter(
         val pageDataOutput = ByteArrayOutputStream()
         val pageWriter = BinaryWriter(pageDataOutput)
         
-        // Write definition levels if nullable
-        if (field.isNullable) {
-            // Generate definition levels if not provided
-            val defLevels = column.definitionLevels ?: run {
-                // Generate definition levels by checking each position
-                val levels = IntArray(column.size)
-                var nonNullIndex = 0
-                val definedData = column.definedData
-                for (i in 0 until column.size) {
-                    // Check if this position has a value by comparing with definedData
-                    if (nonNullIndex < definedData.size) {
-                        // Assume value is present (we'll mark nulls as 0 below)
-                        levels[i] = 1
-                        nonNullIndex++
-                    } else {
-                        levels[i] = 0
-                    }
-                }
-                // Actually, we need to iterate through the original data
-                // Let's use reflection to access the data field
-                val dataField = column.javaClass.getDeclaredField("data")
-                dataField.isAccessible = true
-                @Suppress("UNCHECKED_CAST")
-                val data = dataField.get(column) as Array<Any?>
-                for (i in data.indices) {
-                    levels[i] = if (data[i] == null) 0 else 1
-                }
-                levels
+        // Write repetition levels if present (for nested types)
+        if (column.repetitionLevels != null && field.maxRepetitionLevel > 0) {
+            val encodedRepLevels = com.molo17.parquetkt.encoding.LevelEncoder.encodeLevels(
+                column.repetitionLevels.toList()
+            )
+            pageWriter.writeInt32(encodedRepLevels.size)
+            pageWriter.writeBytes(encodedRepLevels)
+        }
+        
+        // Write definition levels if present (for nested types) or if nullable
+        if (column.definitionLevels != null) {
+            // Use provided definition levels (for nested types)
+            val encodedDefLevels = com.molo17.parquetkt.encoding.LevelEncoder.encodeLevels(
+                column.definitionLevels.toList()
+            )
+            pageWriter.writeInt32(encodedDefLevels.size)
+            pageWriter.writeBytes(encodedDefLevels)
+        } else if (field.isNullable) {
+            // Generate definition levels for simple nullable fields (existing behavior)
+            val dataField = column.javaClass.getDeclaredField("data")
+            dataField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val data = dataField.get(column) as Array<Any?>
+            val levels = IntArray(data.size)
+            for (i in data.indices) {
+                levels[i] = if (data[i] == null) 0 else 1
             }
             
-            // Encode definition levels using RLE
+            // Use RLE encoder for backward compatibility with existing code
             val rleEncoder = com.molo17.parquetkt.encoding.RleEncoder(1)
-            val encodedDefLevels = rleEncoder.encode(defLevels)
-            
-            // Write length and data
+            val encodedDefLevels = rleEncoder.encode(levels)
             pageWriter.writeInt32(encodedDefLevels.size)
             pageWriter.writeBytes(encodedDefLevels)
         }

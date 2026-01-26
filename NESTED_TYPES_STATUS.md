@@ -85,7 +85,22 @@
 - ✅ Round trip with empty lists
 - ✅ Round trip with nullable lists
 
-**Total: 47/47 tests passing (100%)**
+**Session 4: 4 tests - all passing:**
+- ✅ Schema reflection for data class with List<String>
+- ✅ Flatten and reconstruct list data manually
+- ✅ Write and read simple list with low-level API
+- ✅ Nested schema conversion to Thrift
+
+**Session 5: 7 tests - all passing:**
+- ✅ Encode and decode empty levels
+- ✅ Encode and decode single level
+- ✅ Encode and decode multiple levels
+- ✅ Encode and decode repetition levels for lists
+- ✅ Encode and decode definition levels
+- ✅ Get max bit width calculation
+- ✅ Round trip with large level values
+
+**Total: 58/58 tests passing (100%)**
 
 ## 📋 Remaining Work (Next Sessions)
 

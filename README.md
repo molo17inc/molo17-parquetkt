@@ -358,7 +358,7 @@ This library provides a similar API to parquet-dotnet while leveraging Kotlin's 
 
 ## Test Coverage
 
-The library has comprehensive test coverage with **47/47 tests passing (100%)**:
+The library has comprehensive test coverage with **58/58 tests passing (100%)**:
 
 - ✅ **IntegrationTest** (5 tests) - Core read/write operations, compression codecs, nullable fields
 - ✅ **ParquetFileTest** (3 tests) - High-level API, object serialization, schema reading
@@ -368,6 +368,8 @@ The library has comprehensive test coverage with **47/47 tests passing (100%)**:
 - ✅ **NestedTypesBasicTest** (9 tests) - Nested schema structures, reflection, Thrift conversion
 - ✅ **LevelCalculatorTest** (10 tests) - Repetition/definition levels, data flattening
 - ✅ **NestedDataColumnTest** (6 tests) - Nested data columns, reconstruction, round-trip
+- ✅ **NestedTypesEndToEndTest** (4 tests) - End-to-end nested types integration
+- ✅ **LevelEncoderTest** (7 tests) - Level encoding/decoding with varints
 
 ## Roadmap
 
@@ -415,7 +417,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 **Daniele Angeli** - Founder & CEO at [MOLO17](https://www.molo17.com/)
 
-MOLO17 is an Italian software development company specializing in innovative digital solutions, mobile applications, and enterprise software. This library was developed as part of MOLO17's commitment to open-source software and the Kotlin ecosystem.
+MOLO17 is an ISV specialized in real-time data integration technologies with headquarters in Italy (Venice) and USA (Cupertino, CA). This library was developed as part of MOLO17's commitment to open-source software and the Kotlin ecosystem.
 
 - 🏢 Company: [MOLO17](https://www.molo17.com/)
 - 💼 LinkedIn: [Daniele Angeli](https://www.linkedin.com/in/danieleangeli/)
