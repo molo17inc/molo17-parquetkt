@@ -41,25 +41,21 @@ class BinaryReader(private val input: InputStream) {
     }
     
     fun readInt32(): Int {
-        // For data values: fixed 4-byte little-endian
         val bytes = readBytes(4)
         return ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).int
     }
     
     fun readInt64(): Long {
-        // For data values: fixed 8-byte little-endian
         val bytes = readBytes(8)
         return ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).long
     }
     
     fun readInt32Zigzag(): Int {
-        // For Thrift Compact Protocol: zigzag-encoded varint
         val zigzag = readVarInt()
         return (zigzag ushr 1) xor -(zigzag and 1)
     }
-    
+
     fun readInt64Zigzag(): Long {
-        // For Thrift Compact Protocol: zigzag-encoded varlong
         val zigzag = readVarLong()
         return (zigzag ushr 1) xor -(zigzag and 1)
     }

@@ -33,7 +33,6 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testImplementation("io.mockk:mockk:1.13.10")
     testImplementation("org.assertj:assertj-core:3.25.3")
-    testImplementation("org.json:json:20240303")
 }
 
 tasks.test {

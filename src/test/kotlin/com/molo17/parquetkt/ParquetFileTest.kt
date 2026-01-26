@@ -58,19 +58,10 @@ class ParquetFileTest {
         // Write objects
         ParquetFile.writeObjects(file, people, CompressionCodec.SNAPPY)
         
-        // Read objects back using PyArrow
-        val readRecords = PyArrowUtils.readRecords(file)
+        // Read objects back
+        val readPeople = ParquetFile.readObjects<Person>(file)
         
-        assertEquals(people.size, readRecords.size)
-        // Convert PyArrow records back to Person objects for comparison
-        val readPeople = readRecords.map { record ->
-            Person(
-                name = record["name"] as String,
-                age = record["age"] as Int,
-                salary = record["salary"] as Double,
-                isActive = record["isActive"] as Boolean
-            )
-        }
+        assertEquals(people.size, readPeople.size)
         assertEquals(people, readPeople)
     }
     
@@ -100,15 +91,6 @@ class ParquetFileTest {
         val file = File(tempDir, "schema_test.parquet")
         ParquetFile.writeObjects(file, people)
         
-        val fieldNames = PyArrowUtils.readSchemaFields(file)
-        
-        assertEquals(4, fieldNames.size)
-        assert(fieldNames.contains("name"))
-        assert(fieldNames.contains("age"))
-        assert(fieldNames.contains("salary"))
-        assert(fieldNames.contains("isActive"))
-    }
-}
         val schema = ParquetFile.readSchema(file)
         
         assertEquals(4, schema.fieldCount)

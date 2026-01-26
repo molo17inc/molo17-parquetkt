@@ -245,10 +245,34 @@ class ParquetReader(
     private fun deserializePageHeader(bytes: ByteArray): PageHeader {
         val reader = BinaryReader(ByteArrayInputStream(bytes))
         
-        val typeOrdinal = reader.readInt32()
-        val type = PageType.values()[typeOrdinal]
-        val uncompressedSize = reader.readInt32()
-        val compressedSize = reader.readInt32()
+        var type = PageType.DATA_PAGE
+        var uncompressedSize = 0
+        var compressedSize = 0
+        
+        var lastFieldId = 0
+        while (true) {
+            val fieldHeader = reader.readByte().toInt() and 0xFF
+            if (fieldHeader == 0) break
+            
+            val fieldDelta = (fieldHeader shr 4) and 0x0F
+            val fieldType = fieldHeader and 0x0F
+            val fieldId = if (fieldDelta == 0) {
+                reader.readInt32Zigzag()
+            } else {
+                lastFieldId + fieldDelta
+            }
+            lastFieldId = fieldId
+            
+            when (fieldId) {
+                1 -> {
+                    val thriftValue = reader.readInt32Zigzag()
+                    type = PageType.values().find { it.thriftValue == thriftValue } ?: PageType.DATA_PAGE
+                }
+                2 -> uncompressedSize = reader.readInt32Zigzag()
+                3 -> compressedSize = reader.readInt32Zigzag()
+                else -> ThriftDeserializer.skipField(reader, fieldType)
+            }
+        }
         
         return PageHeader(
             type = type,

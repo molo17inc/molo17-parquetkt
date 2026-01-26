@@ -41,15 +41,7 @@ object ThriftDeserializer {
             
             val fieldDelta = (fieldHeader shr 4) and 0x0F
             val fieldType = fieldHeader and 0x0F
-            
-            val fieldId = if (fieldDelta == 0) {
-                // Field ID encoded as separate zigzag varint when delta is 0
-                val zigzag = reader.readVarInt()
-                // Decode zigzag: (n >>> 1) ^ -(n & 1)
-                (zigzag ushr 1) xor -(zigzag and 1)
-            } else {
-                lastFieldId + fieldDelta
-            }
+            val fieldId = if (fieldDelta == 0) reader.readInt32Zigzag() else lastFieldId + fieldDelta
             lastFieldId = fieldId
             
             when (fieldId) {
@@ -72,7 +64,7 @@ object ThriftDeserializer {
     }
     
     private fun readSchemaList(reader: BinaryReader): List<SchemaElement> {
-        val (elementType, size) = readListBegin(reader)
+        val (_, size) = readListBegin(reader)
         val list = mutableListOf<SchemaElement>()
         
         repeat(size) {
@@ -95,10 +87,8 @@ object ThriftDeserializer {
             
             val fieldDelta = (fieldHeader shr 4) and 0x0F
             val fieldType = fieldHeader and 0x0F
-            
             val fieldId = if (fieldDelta == 0) {
-                val zigzag = reader.readVarInt()
-                (zigzag ushr 1) xor -(zigzag and 1)
+                reader.readInt32Zigzag()
             } else {
                 lastFieldId + fieldDelta
             }
@@ -109,12 +99,12 @@ object ThriftDeserializer {
                     val thriftValue = reader.readInt32Zigzag()
                     type = ParquetType.values().find { it.thriftValue == thriftValue }
                 }
-                3 -> name = readString(reader)
-                4 -> numChildren = reader.readInt32Zigzag()
-                5 -> {
-                    val thriftValue = reader.readInt32Zigzag()
-                    repetitionType = FieldRepetitionType.values().find { it.ordinal == thriftValue }
+                3 -> {
+                    val ordinal = reader.readInt32Zigzag()
+                    repetitionType = FieldRepetitionType.values().getOrNull(ordinal)
                 }
+                4 -> name = readString(reader)
+                5 -> numChildren = reader.readInt32Zigzag()
                 else -> skipField(reader, fieldType)
             }
         }
@@ -150,12 +140,7 @@ object ThriftDeserializer {
             
             val fieldDelta = (fieldHeader shr 4) and 0x0F
             val fieldType = fieldHeader and 0x0F
-            
-            val fieldId = if (fieldDelta == 0) {
-                reader.readVarInt()
-            } else {
-                lastFieldId + fieldDelta
-            }
+            val fieldId = if (fieldDelta == 0) reader.readInt32Zigzag() else lastFieldId + fieldDelta
             lastFieldId = fieldId
             
             when (fieldId) {
@@ -195,13 +180,7 @@ object ThriftDeserializer {
             
             val fieldDelta = (fieldHeader shr 4) and 0x0F
             val fieldType = fieldHeader and 0x0F
-            
-            val fieldId = if (fieldDelta == 0) {
-                val zigzag = reader.readVarInt()
-                (zigzag ushr 1) xor -(zigzag and 1)
-            } else {
-                lastFieldId + fieldDelta
-            }
+            val fieldId = if (fieldDelta == 0) reader.readInt32Zigzag() else lastFieldId + fieldDelta
             lastFieldId = fieldId
             
             when (fieldId) {
@@ -234,13 +213,7 @@ object ThriftDeserializer {
             
             val fieldDelta = (fieldHeader shr 4) and 0x0F
             val fieldType = fieldHeader and 0x0F
-            
-            val fieldId = if (fieldDelta == 0) {
-                val zigzag = reader.readVarInt()
-                (zigzag ushr 1) xor -(zigzag and 1)
-            } else {
-                lastFieldId + fieldDelta
-            }
+            val fieldId = if (fieldDelta == 0) reader.readInt32Zigzag() else lastFieldId + fieldDelta
             lastFieldId = fieldId
             
             when (fieldId) {
@@ -323,22 +296,17 @@ object ThriftDeserializer {
                 repeat(size) { skipField(reader, elementType) }
             }
             12 -> { // STRUCT
-                var lastNestedFieldId = 0
+                var lastFieldId = 0
                 while (true) {
                     val fieldHeader = reader.readByte().toInt() and 0xFF
                     if (fieldHeader == 0) break
-                    
                     val fieldDelta = (fieldHeader shr 4) and 0x0F
                     val nestedFieldType = fieldHeader and 0x0F
-                    
-                    // Handle field delta encoding even when skipping
                     if (fieldDelta == 0) {
-                        val zigzag = reader.readVarInt()
-                        lastNestedFieldId = (zigzag ushr 1) xor -(zigzag and 1)
+                        reader.readInt32Zigzag()
                     } else {
-                        lastNestedFieldId += fieldDelta
+                        lastFieldId += fieldDelta
                     }
-                    
                     skipField(reader, nestedFieldType)
                 }
             }
