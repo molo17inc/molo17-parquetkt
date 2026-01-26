@@ -131,5 +131,56 @@ data class DataField(
                 repetition = if (nullable) Repetition.OPTIONAL else Repetition.REQUIRED
             )
         }
+        
+        /**
+         * Create a list field (repeated values).
+         * Note: Full nested list support with proper 3-level structure is planned.
+         * This provides basic repeated field support.
+         */
+        fun list(name: String, elementType: ParquetType, nullable: Boolean = false): DataField {
+            return DataField(
+                name = name,
+                dataType = elementType,
+                repetition = Repetition.REPEATED,
+                maxRepetitionLevel = 1
+            )
+        }
+        
+        /**
+         * Create a repeated string field (list of strings).
+         */
+        fun stringList(name: String, nullable: Boolean = false): DataField {
+            return DataField(
+                name = name,
+                dataType = ParquetType.BYTE_ARRAY,
+                logicalType = LogicalType.STRING,
+                repetition = Repetition.REPEATED,
+                maxRepetitionLevel = 1
+            )
+        }
+        
+        /**
+         * Create a repeated int32 field (list of integers).
+         */
+        fun int32List(name: String, nullable: Boolean = false): DataField {
+            return DataField(
+                name = name,
+                dataType = ParquetType.INT32,
+                repetition = Repetition.REPEATED,
+                maxRepetitionLevel = 1
+            )
+        }
+        
+        /**
+         * Create a repeated int64 field (list of longs).
+         */
+        fun int64List(name: String, nullable: Boolean = false): DataField {
+            return DataField(
+                name = name,
+                dataType = ParquetType.INT64,
+                repetition = Repetition.REPEATED,
+                maxRepetitionLevel = 1
+            )
+        }
     }
 }

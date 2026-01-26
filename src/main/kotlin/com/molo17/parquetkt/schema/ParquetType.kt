@@ -65,7 +65,9 @@ enum class LogicalType {
     JSON,
     BSON,
     UUID,
-    INTERVAL
+    INTERVAL,
+    LIST,
+    MAP
 }
 
 enum class Repetition {

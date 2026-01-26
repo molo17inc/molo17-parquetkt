@@ -248,8 +248,15 @@ val schema = ParquetSchema.create(
 ### Complex Types
 
 - Nullable types → Optional fields with definition levels ✅
-- `List<T>` → Repeated fields (planned)
-- Nested structures (planned)
+- Basic repeated fields → Simple lists (INT32, INT64, STRING) ✅
+- Nested schema support → Hierarchical `NestedField` structure ✅
+- List schema → Proper 3-level Parquet list structure ✅
+- Map schema → Proper Parquet map structure ✅
+- Struct schema → Nested group support ✅
+- Reflection → Auto-detect `List<T>`, `Map<K,V>`, nested classes ✅
+- `List<T>` serialization → Data encoding/decoding (in progress)
+- `Map<K,V>` serialization → Data encoding/decoding (in progress)
+- Nested struct serialization → Data encoding/decoding (in progress)
 
 ## Compression
 
@@ -351,13 +358,16 @@ This library provides a similar API to parquet-dotnet while leveraging Kotlin's 
 
 ## Test Coverage
 
-The library has comprehensive test coverage with **22/22 tests passing (100%)**:
+The library has comprehensive test coverage with **47/47 tests passing (100%)**:
 
 - ✅ **IntegrationTest** (5 tests) - Core read/write operations, compression codecs, nullable fields
 - ✅ **ParquetFileTest** (3 tests) - High-level API, object serialization, schema reading
 - ✅ **PerformanceBenchmarkTest** (3 tests) - Large-scale operations, compression benchmarks
 - ✅ **ExtendedDataTypesTest** (5 tests) - INT96, FIXED_LEN_BYTE_ARRAY, DATE, TIMESTAMP types
 - ✅ **CoroutinesTest** (6 tests) - Async I/O, Flow API, suspend functions
+- ✅ **NestedTypesBasicTest** (9 tests) - Nested schema structures, reflection, Thrift conversion
+- ✅ **LevelCalculatorTest** (10 tests) - Repetition/definition levels, data flattening
+- ✅ **NestedDataColumnTest** (6 tests) - Nested data columns, reconstruction, round-trip
 
 ## Roadmap
 
@@ -373,10 +383,20 @@ The library has comprehensive test coverage with **22/22 tests passing (100%)**:
 - ✅ High-level object serialization API
 - ✅ Schema reflection from data classes
 - ✅ Coroutines support with suspend functions and Flow API
+- ✅ Basic repeated fields (simple lists of primitives)
+- ✅ Nested types schema foundation (NestedField hierarchy)
+- ✅ 3-level list/map schema structures
+- ✅ Nested schema reflection (List<T>, Map<K,V>, nested classes)
+- ✅ Thrift serialization for nested schemas
+- ✅ Repetition/definition level calculation
+- ✅ Nested data flattening to columnar format
 
 ### In Progress 🚧
 
-- 🚧 Support for nested types (structs, lists, maps)
+- 🚧 Nested data encoding with PlainEncoder
+- 🚧 Nested data decoding with PlainDecoder
+- 🚧 List/Map/Struct serialization in ParquetSerializer
+- 🚧 End-to-end nested types write/read support
 - 🚧 Predicate pushdown for efficient filtering
 - 🚧 Statistics support
 

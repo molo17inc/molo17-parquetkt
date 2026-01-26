@@ -102,6 +102,8 @@ object SchemaConverter {
             LogicalType.UINT_64 -> ConvertedType.UINT_64
             LogicalType.INT_8 -> ConvertedType.INT_8
             LogicalType.INT_16 -> ConvertedType.INT_16
+            LogicalType.LIST -> ConvertedType.LIST
+            LogicalType.MAP -> ConvertedType.MAP
             LogicalType.INT_32 -> ConvertedType.INT_32
             LogicalType.INT_64 -> ConvertedType.INT_64
             LogicalType.JSON -> ConvertedType.JSON
