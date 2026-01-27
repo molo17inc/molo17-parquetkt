@@ -3,7 +3,7 @@
 A fully managed, pure Kotlin library for reading and writing Apache Parquet files. This is a port of the excellent [parquet-dotnet](https://github.com/aloneguid/parquet-dotnet) library from C# to Kotlin.
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
-[![Test Coverage](https://img.shields.io/badge/tests-22%2F22%20passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
+[![Test Coverage](https://img.shields.io/badge/tests-84%20passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 ## Features
@@ -16,7 +16,7 @@ A fully managed, pure Kotlin library for reading and writing Apache Parquet file
 - 🗜️ **Compression** - Support for SNAPPY, GZIP, ZSTD, and UNCOMPRESSED
 - 🎨 **Multiple APIs** - High-level and low-level APIs for different use cases
 - ⚡ **High Performance** - 300K+ rows/second throughput
-- ✅ **Production Ready** - Comprehensive test coverage (22/22 tests passing)
+- ✅ **Production Ready** - Comprehensive test coverage (84 tests passing)
 - 🔧 **Nullable Fields** - Full support for optional/nullable columns
 - 🌊 **Coroutines Support** - Async I/O with suspend functions and Flow API
 
@@ -353,12 +353,12 @@ This library provides a similar API to parquet-dotnet while leveraging Kotlin's 
 | Nullable fields | ✅ | ✅ |
 | Compression codecs | ✅ | ✅ (4 codecs) |
 | Streaming reads | ✅ | ✅ (Sequences) |
-| Production ready | ✅ | ✅ (22/22 tests) |
+| Production ready | ✅ | ✅ (84 tests) |
 | Coroutines support | ❌ | ✅ (Flow API) |
 
 ## Test Coverage
 
-The library has comprehensive test coverage with **74/74 tests passing (100%)**:
+The library has comprehensive test coverage with **84 tests passing (100%)**:
 
 - ✅ **IntegrationTest** (5 tests) - Core read/write operations, compression codecs, nullable fields
 - ✅ **ParquetFileTest** (3 tests) - High-level API, object serialization, schema reading
