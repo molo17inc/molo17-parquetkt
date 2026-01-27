@@ -626,17 +626,25 @@ class ParquetWriter(
         fun create(
             file: File,
             schema: ParquetSchema,
-            compressionCodec: CompressionCodec = CompressionCodec.SNAPPY
-        ): ParquetWriter {
-            return ParquetWriter(file.absolutePath, schema, compressionCodec)
-        }
+            compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
+            enableDictionary: Boolean = false
+        ): ParquetWriter = ParquetWriter(
+            outputPath = file.absolutePath,
+            schema = schema,
+            compressionCodec = compressionCodec,
+            enableDictionary = enableDictionary
+        )
         
         fun create(
             path: String,
             schema: ParquetSchema,
-            compressionCodec: CompressionCodec = CompressionCodec.SNAPPY
-        ): ParquetWriter {
-            return ParquetWriter(path, schema, compressionCodec)
-        }
+            compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
+            enableDictionary: Boolean = false
+        ): ParquetWriter = ParquetWriter(
+            outputPath = path,
+            schema = schema,
+            compressionCodec = compressionCodec,
+            enableDictionary = enableDictionary
+        )
     }
 }
