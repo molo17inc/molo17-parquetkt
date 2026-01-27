@@ -61,18 +61,45 @@ publish:maven-central:
     - build
     - test
   script:
-    # Install GPG for signing
-    - apt-get update && apt-get install -y gnupg
+    # Install required tools
+    - apt-get update && apt-get install -y gnupg zip curl
     
     # Import GPG key for signing
     - echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
     
-    # Publish to Maven Central via Sonatype OSSRH
-    - ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
+    # Build and sign artifacts
+    - ./gradlew publishToMavenLocal
       -Psigning.gnupg.keyName="$GPG_KEY_ID"
       -Psigning.gnupg.passphrase="$GPG_PASSPHRASE"
-      -PsonatypeUsername="$SONATYPE_USERNAME"
-      -PsonatypePassword="$SONATYPE_PASSWORD"
+    
+    # Get version from build.gradle.kts
+    - export VERSION=$(grep "^version = " build.gradle.kts | sed 's/version = "\(.*\)"/\1/')
+    
+    # Create bundle directory structure
+    - mkdir -p /tmp/bundle/com/molo17/parquetkt/$VERSION
+    
+    # Copy artifacts to bundle
+    - cp ~/.m2/repository/com/molo17/parquetkt/$VERSION/parquetkt-$VERSION*.jar /tmp/bundle/com/molo17/parquetkt/$VERSION/
+    - cp ~/.m2/repository/com/molo17/parquetkt/$VERSION/parquetkt-$VERSION*.jar.asc /tmp/bundle/com/molo17/parquetkt/$VERSION/
+    - cp ~/.m2/repository/com/molo17/parquetkt/$VERSION/parquetkt-$VERSION.pom* /tmp/bundle/com/molo17/parquetkt/$VERSION/
+    
+    # Generate checksums
+    - cd /tmp/bundle/com/molo17/parquetkt/$VERSION
+    - for file in parquetkt-$VERSION*.jar parquetkt-$VERSION.pom; do md5sum "$file" | awk '{print $1}' > "${file}.md5"; sha1sum "$file" | awk '{print $1}' > "${file}.sha1"; done
+    
+    # Create bundle ZIP
+    - cd /tmp/bundle && zip -r /tmp/parquetkt-bundle.zip com/
+    
+    # Generate auth token
+    - export AUTH_TOKEN=$(printf "${SONATYPE_USERNAME}:${SONATYPE_PASSWORD}" | base64)
+    
+    # Upload to Central Portal with automatic publishing
+    - |
+      curl --fail --request POST \
+        --header "Authorization: Bearer ${AUTH_TOKEN}" \
+        --form bundle=@/tmp/parquetkt-bundle.zip \
+        --form publishingType=AUTOMATIC \
+        https://central.sonatype.com/api/v1/publisher/upload
   artifacts:
     paths:
       - build/libs/*.jar
@@ -82,36 +109,3 @@ publish:maven-central:
     name: maven-central
     url: https://central.sonatype.com/artifact/com.molo17/parquetkt
 
-# Publish snapshot versions (on main branch)
-publish:snapshot:
-  stage: publish
-  tags:
-    - hq-linux-docker
-  only:
-    - main
-  except:
-    - tags
-  dependencies:
-    - build
-    - test
-  script:
-    # Install GPG for signing
-    - apt-get update && apt-get install -y gnupg
-    
-    # Import GPG key for signing
-    - echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
-    
-    # Publish snapshot to Sonatype snapshots repository
-    - ./gradlew publishToSonatype
-      -Psigning.gnupg.keyName="$GPG_KEY_ID"
-      -Psigning.gnupg.passphrase="$GPG_PASSPHRASE"
-      -PsonatypeUsername="$SONATYPE_USERNAME"
-      -PsonatypePassword="$SONATYPE_PASSWORD"
-  artifacts:
-    paths:
-      - build/libs/*.jar
-      - build/publications/
-    expire_in: 1 week
-  environment:
-    name: maven-central-snapshots
-    url: https://s01.oss.sonatype.org/content/repositories/snapshots/com/molo17/parquetkt/
