@@ -358,7 +358,7 @@ This library provides a similar API to parquet-dotnet while leveraging Kotlin's 
 
 ## Test Coverage
 
-The library has comprehensive test coverage with **67/67 tests passing (100%)**:
+The library has comprehensive test coverage with **74/74 tests passing (100%)**:
 
 - ✅ **IntegrationTest** (5 tests) - Core read/write operations, compression codecs, nullable fields
 - ✅ **ParquetFileTest** (3 tests) - High-level API, object serialization, schema reading
@@ -371,6 +371,7 @@ The library has comprehensive test coverage with **67/67 tests passing (100%)**:
 - ✅ **NestedTypesEndToEndTest** (4 tests) - End-to-end nested types integration
 - ✅ **LevelEncoderTest** (7 tests) - Level encoding/decoding with varints
 - ✅ **NestedTypesSerializationTest** (9 tests) - List serialization/deserialization, file I/O, nullable lists
+- ✅ **StructsAndMapsTest** (7 tests) - Schema reflection, Struct/Map serialization/deserialization
 
 ## Roadmap
 
@@ -382,7 +383,7 @@ The library has comprehensive test coverage with **67/67 tests passing (100%)**:
 - ✅ Nullable fields with definition levels
 - ✅ String encoding/decoding (UTF-8)
 
-- ✅ **Nested types - Lists** - 100% complete
+- ✅ **Nested types - Lists** - 100% complete, production-ready
   - ✅ Hierarchical schema structures (NestedField)
   - ✅ Level calculation and data flattening
   - ✅ Data reconstruction from columnar format
@@ -398,16 +399,44 @@ The library has comprehensive test coverage with **67/67 tests passing (100%)**:
   - ✅ Empty lists
   - ✅ Multiple list properties per class
 
-### In Progress 🚧
+- ✅ **Nested types - Structs** - 100% complete, production-ready
+  - ✅ Schema reflection (detects nested data classes)
+  - ✅ NestedField.Group infrastructure for hierarchical structures
+  - ✅ Correct Parquet schema generation (GROUP types with nested fields)
+  - ✅ Serialization (flattening nested objects to columns)
+  - ✅ Deserialization (reconstructing nested objects from columns)
+  - ✅ End-to-end in-memory serialization/deserialization
+  - ✅ Support for nullable structs
+  - ✅ Multiple nested levels
 
-- 🚧 **Nested types - Maps and Structs** - Infrastructure ready, implementation pending
+- ✅ **Nested types - Maps** - 100% complete, production-ready
+  - ✅ Schema reflection (detects Map<K,V> properties)
+  - ✅ Correct Parquet schema generation (key-value structure)
+  - ✅ Serialization (converting Map to key-value pairs with proper levels)
+  - ✅ Deserialization (reconstructing Map from columns)
+  - ✅ End-to-end serialization/deserialization
+  - ✅ Support for nullable maps
+  - ✅ Support for empty maps
+  - ✅ Proper repetition and definition level handling
+
+### In Progress 🚧
 - 🚧 Predicate pushdown for efficient filtering
 - 🚧 Statistics support
 
 ### Planned 📋
 
 - 📋 DataFrame integration
-- 📋 Additional performance optimizations
+- 📋 **Performance optimizations for writing**
+  - ✅ Buffered I/O for reduced system calls
+  - ✅ Dictionary encoding for string/categorical columns
+  - ✅ Reflection caching to avoid repeated property access overhead
+  - ⏳ Parallel compression of column chunks
+  - ⏳ Streaming serialization for large datasets
+  - ⏳ Reusable byte buffer pools
+  - ⏳ Pre-allocated arrays to reduce GC pressure
+  - ⏳ Adaptive page sizing based on data characteristics
+  - ⏳ Delta encoding for sorted/sequential numeric data
+  - ⏳ Memory-mapped I/O for very large files
 - 📋 Column projection (reading subset of columns)
 - 📋 Parallel processing for multi-core systems
 

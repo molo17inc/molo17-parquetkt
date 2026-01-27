@@ -20,12 +20,14 @@ package com.molo17.parquetkt.io
 import com.molo17.parquetkt.compression.CompressionCodecFactory
 import com.molo17.parquetkt.data.DataColumn
 import com.molo17.parquetkt.data.RowGroup
+import com.molo17.parquetkt.encoding.DictionaryEncoder
 import com.molo17.parquetkt.encoding.PlainEncoder
 import com.molo17.parquetkt.encoding.RleEncoder
 import com.molo17.parquetkt.format.BinaryWriter
 import com.molo17.parquetkt.format.ParquetConstants
 import com.molo17.parquetkt.schema.*
 import com.molo17.parquetkt.thrift.*
+import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.File
@@ -38,10 +40,11 @@ class ParquetWriter(
     private val compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
     private val rowGroupSize: Int = DEFAULT_ROW_GROUP_SIZE,
     private val pageSize: Int = DEFAULT_PAGE_SIZE,
-    private val enableDictionary: Boolean = true
+    private val enableDictionary: Boolean = true,
+    private val bufferSize: Int = DEFAULT_BUFFER_SIZE
 ) : Closeable {
     
-    private val outputStream: OutputStream = FileOutputStream(outputPath)
+    private val outputStream: OutputStream = BufferedOutputStream(FileOutputStream(outputPath), bufferSize)
     private var isClosed = false
     private val rowGroups = mutableListOf<RowGroup>()
     
@@ -155,9 +158,17 @@ class ParquetWriter(
         val dataPageOffset = startOffset
         var currentOffset = startOffset
         
-        // Encode data (only non-null values)
-        val encoder = PlainEncoder(field.dataType)
-        val encodedData = encoder.encode(column.definedData as Array<Any>)
+        // Try dictionary encoding for string/byte array columns if enabled
+        val useDictionary = enableDictionary && 
+                           DictionaryEncoder.canUseDictionary(field.dataType) &&
+                           column.definedData.isNotEmpty()
+        
+        val (encodedData, encoding, dictionaryPageData) = if (useDictionary) {
+            tryDictionaryEncoding(column.definedData as Array<Any>, field.dataType)
+        } else {
+            val encoder = PlainEncoder(field.dataType)
+            Triple(encoder.encode(column.definedData as Array<Any>), Encoding.PLAIN, null)
+        }
         
         // Prepare uncompressed page data
         val pageDataOutput = ByteArrayOutputStream()
@@ -211,10 +222,28 @@ class ParquetWriter(
         val totalUncompressedSize = uncompressedPageData.size
         val totalCompressedSize = compressedData.size
         
+        // Write dictionary page if present
+        if (dictionaryPageData != null) {
+            val dictPageHeader = DictionaryPageHeader(
+                numValues = dictionaryPageData.numValues,
+                encoding = Encoding.PLAIN
+            )
+            val dictPageHeaderBytes = serializePageHeader(PageHeader(
+                type = PageType.DICTIONARY_PAGE,
+                uncompressedPageSize = dictionaryPageData.data.size,
+                compressedPageSize = dictionaryPageData.data.size,
+                dictionaryPageHeader = dictPageHeader
+            ))
+            writer.writeBytes(dictPageHeaderBytes)
+            currentOffset += dictPageHeaderBytes.size
+            writer.writeBytes(dictionaryPageData.data)
+            currentOffset += dictionaryPageData.data.size
+        }
+        
         // Write DATA_PAGE (V1) header
         val pageHeader = DataPageHeader(
             numValues = column.size,
-            encoding = Encoding.PLAIN,
+            encoding = encoding,
             definitionLevelEncoding = Encoding.RLE,
             repetitionLevelEncoding = Encoding.RLE
         )
@@ -241,15 +270,24 @@ class ParquetWriter(
         // total_compressed_size should include the page header size
         val totalCompressedSizeWithHeader = pageHeaderBytes.size.toLong() + totalCompressedSize
         
+        val encodings = mutableListOf(Encoding.RLE)
+        if (dictionaryPageData != null) {
+            encodings.add(Encoding.PLAIN)
+            encodings.add(Encoding.RLE_DICTIONARY)
+        } else {
+            encodings.add(encoding)
+        }
+        
         val columnMetadata = ColumnMetaData(
             type = field.dataType,
-            encodings = listOf(Encoding.RLE, Encoding.PLAIN),  // RLE for levels, PLAIN for data
+            encodings = encodings,
             pathInSchema = listOf(field.name),
             codec = compressionCodec,
             numValues = column.size.toLong(),
             totalUncompressedSize = encodedData.size.toLong(),
             totalCompressedSize = totalCompressedSizeWithHeader,
-            dataPageOffset = dataPageOffset
+            dataPageOffset = if (dictionaryPageData != null) currentOffset - (pageHeaderBytes.size + totalCompressedSize) else dataPageOffset,
+            dictionaryPageOffset = if (dictionaryPageData != null) startOffset else null
         )
         
         val columnChunk = ColumnChunk(
@@ -288,6 +326,7 @@ class ParquetWriter(
     companion object {
         const val DEFAULT_ROW_GROUP_SIZE = 128 * 1024 * 1024 // 128 MB
         const val DEFAULT_PAGE_SIZE = 1024 * 1024 // 1 MB
+        const val DEFAULT_BUFFER_SIZE = 64 * 1024 // 64 KB buffer for I/O operations
         
         fun create(
             file: File,

@@ -39,10 +39,55 @@ class ParquetSerializer<T : Any>(
     private val properties: List<KProperty1<T, *>> = clazz.memberProperties.toList()
     
     fun serialize(data: List<T>, schema: ParquetSchema): RowGroup {
-        val columns = schema.fields.map { field ->
-            serializeColumn(data, field)
+        val columns = if (schema.hasNestedStructure && schema.nestedFields != null) {
+            // Handle nested structures - flatten to leaf columns
+            serializeNestedFields(data, schema.nestedFields)
+        } else {
+            // Simple flat structure
+            schema.fields.map { field ->
+                serializeColumn(data, field)
+            }
         }
         return RowGroup(schema, columns)
+    }
+    
+    private fun serializeNestedFields(data: List<T>, nestedFields: List<NestedField>): List<DataColumn<*>> {
+        val columns = mutableListOf<DataColumn<*>>()
+        
+        for (field in nestedFields) {
+            when (field) {
+                is NestedField.Primitive -> {
+                    // Simple field - serialize directly
+                    columns.add(serializeColumn(data, field.toDataField()))
+                }
+                is NestedField.Group -> {
+                    // Check if this is a struct, list, or map
+                    when (field.logicalType) {
+                        LogicalType.LIST -> {
+                            // Handle list - find the corresponding property and serialize
+                            val property = properties.find { it.name == field.name }
+                            if (property != null && isListProperty(property)) {
+                                // Get the leaf field for the list
+                                val leafFields = field.getLeafFields()
+                                if (leafFields.isNotEmpty()) {
+                                    columns.add(serializeListColumn(data, leafFields.first().toDataField(), property))
+                                }
+                            }
+                        }
+                        LogicalType.MAP -> {
+                            // Handle map - flatten to key-value columns
+                            columns.addAll(serializeMapField(data, field))
+                        }
+                        else -> {
+                            // Regular struct - flatten to leaf columns
+                            columns.addAll(serializeStructField(data, field))
+                        }
+                    }
+                }
+            }
+        }
+        
+        return columns
     }
     
     private fun serializeColumn(data: List<T>, field: DataField): DataColumn<*> {
@@ -56,6 +101,18 @@ class ParquetSerializer<T : Any>(
             return serializeListColumn(data, field, property)
         }
         
+        // Check if property is a Map type
+        if (isMapProperty(property)) {
+            return serializeMapColumn(data, field, property)
+        }
+        
+        // Check if property is a nested data class (Struct)
+        if (isStructProperty(property)) {
+            throw UnsupportedOperationException(
+                "Struct properties should be handled via serializeNestedFields, not serializeColumn"
+            )
+        }
+        
         val values = data.map { obj ->
             property.get(obj)
         }
@@ -67,6 +124,18 @@ class ParquetSerializer<T : Any>(
         val returnType = property.returnType
         val classifier = returnType.classifier
         return classifier == List::class
+    }
+    
+    private fun isMapProperty(property: KProperty1<T, *>): Boolean {
+        val returnType = property.returnType
+        val classifier = returnType.classifier
+        return classifier == Map::class
+    }
+    
+    private fun isStructProperty(property: KProperty1<T, *>): Boolean {
+        val returnType = property.returnType
+        val classifier = returnType.classifier as? KClass<*>
+        return classifier != null && classifier.isData
     }
     
     private fun serializeListColumn(
@@ -110,6 +179,114 @@ class ParquetSerializer<T : Any>(
             definitionLevels = column.definitionLevels.toIntArray(),
             repetitionLevels = column.repetitionLevels.toIntArray()
         ) as DataColumn<*>
+    }
+    
+    private fun serializeStructField(data: List<T>, structField: NestedField.Group): List<DataColumn<*>> {
+        // Find the property for this struct
+        val property = properties.find { it.name == structField.name }
+            ?: throw IllegalArgumentException("Property ${structField.name} not found in class ${clazz.simpleName}")
+        
+        property.isAccessible = true
+        
+        // Get all leaf fields from the struct
+        val leafFields = structField.getLeafFields()
+        val columns = mutableListOf<DataColumn<*>>()
+        
+        // For each leaf field, extract values from the nested objects
+        for (leafField in leafFields) {
+            val values = data.map { obj ->
+                val structValue = property.get(obj)
+                if (structValue == null) {
+                    null
+                } else {
+                    // Extract the nested field value
+                    extractNestedValue(structValue, leafField.name)
+                }
+            }
+            
+            columns.add(DataColumn.create(leafField.toDataField(), values))
+        }
+        
+        return columns
+    }
+    
+    private fun extractNestedValue(obj: Any, fieldName: String): Any? {
+        val kClass = obj::class
+        val property = kClass.memberProperties.find { it.name == fieldName }
+            ?: throw IllegalArgumentException("Property $fieldName not found in ${kClass.simpleName}")
+        
+        property.isAccessible = true
+        return (property as KProperty1<Any, *>).get(obj)
+    }
+    
+    private fun serializeMapField(data: List<T>, mapField: NestedField.Group): List<DataColumn<*>> {
+        // Find the property for this map
+        val property = properties.find { it.name == mapField.name }
+            ?: throw IllegalArgumentException("Property ${mapField.name} not found in class ${clazz.simpleName}")
+        
+        property.isAccessible = true
+        
+        // Get the key-value struct from the map field
+        val keyValueStruct = mapField.children.first() as NestedField.Group
+        val keyField = keyValueStruct.children[0] as NestedField.Primitive
+        val valueField = keyValueStruct.children[1] as NestedField.Primitive
+        
+        // Flatten maps to key-value pairs with proper levels
+        val keyValues = mutableListOf<Any?>()
+        val valueValues = mutableListOf<Any?>()
+        val definitionLevels = mutableListOf<Int>()
+        val repetitionLevels = mutableListOf<Int>()
+        
+        for (obj in data) {
+            val map = property.get(obj) as? Map<*, *>
+            
+            if (map == null) {
+                // Null map: definition level 0
+                definitionLevels.add(0)
+                repetitionLevels.add(0)
+            } else if (map.isEmpty()) {
+                // Empty map: definition level 1
+                definitionLevels.add(1)
+                repetitionLevels.add(0)
+            } else {
+                // Non-empty map: add each key-value pair
+                var isFirst = true
+                for ((key, value) in map.entries) {
+                    keyValues.add(key)
+                    valueValues.add(value)
+                    definitionLevels.add(3) // Key-value pair present
+                    repetitionLevels.add(if (isFirst) 0 else 1) // 0 for first entry, 1 for repeated
+                    isFirst = false
+                }
+            }
+        }
+        
+        val keyColumn = DataColumn(
+            field = keyField.toDataField(),
+            data = keyValues.toTypedArray(),
+            definitionLevels = definitionLevels.toIntArray(),
+            repetitionLevels = repetitionLevels.toIntArray()
+        )
+        
+        val valueColumn = DataColumn(
+            field = valueField.toDataField(),
+            data = valueValues.toTypedArray(),
+            definitionLevels = definitionLevels.toIntArray(),
+            repetitionLevels = repetitionLevels.toIntArray()
+        )
+        
+        return listOf(keyColumn, valueColumn)
+    }
+    
+    private fun serializeMapColumn(
+        data: List<T>,
+        field: DataField,
+        property: KProperty1<T, *>
+    ): DataColumn<*> {
+        // This is called from the old path - should not be reached with new nested structure
+        throw UnsupportedOperationException(
+            "Map serialization should use serializeMapField with NestedField.Group"
+        )
     }
     
     private fun getElementFieldFromNestedField(nestedField: NestedField.Group): NestedField.Primitive {
@@ -186,8 +363,15 @@ class ParquetDeserializer<T : Any>(
         // Check if any parameters are List types and need reconstruction
         val listColumns = mutableMapOf<String, List<List<*>?>>()
         
+        // Check if any parameters are nested data classes (Structs) and need reconstruction
+        val structColumns = mutableMapOf<String, List<Any?>>()
+        
         parameters.forEach { param ->
-            if (param.type.classifier == List::class) {
+            if (param.type.classifier == Map::class) {
+                // Check if this is a Map type that needs reconstruction
+                val mapObjects = reconstructMap(rowGroup, param.name!!, rowGroup.rowCount)
+                structColumns[param.name!!] = mapObjects
+            } else if (param.type.classifier == List::class) {
                 // Find the column for this parameter
                 val column = rowGroup.columns.find { it.field.name == param.name }
                 if (column != null && column.repetitionLevels != null) {
@@ -244,10 +428,18 @@ class ParquetDeserializer<T : Any>(
                     
                     listColumns[param.name!!] = reconstructed
                 }
+            } else {
+                // Check if this is a nested data class (Struct)
+                val classifier = param.type.classifier as? KClass<*>
+                if (classifier != null && classifier.isData) {
+                    // This is a struct - reconstruct from flattened columns
+                    val structObjects = reconstructStruct(rowGroup, param.name!!, classifier, rowGroup.rowCount)
+                    structColumns[param.name!!] = structObjects
+                }
             }
         }
         
-        // Build a map of column name to column for non-list columns
+        // Build a map of column name to column for non-list, non-struct columns
         val nonListColumns = mutableMapOf<String, DataColumn<*>>()
         rowGroup.columns.forEach { column ->
             if (column.repetitionLevels == null) {
@@ -265,8 +457,16 @@ class ParquetDeserializer<T : Any>(
                     } else {
                         null
                     }
+                } else if (structColumns.containsKey(param.name)) {
+                    // Check if this is a struct column that was reconstructed
+                    val reconstructedStructs = structColumns[param.name!!]!!
+                    if (rowIndex < reconstructedStructs.size) {
+                        reconstructedStructs[rowIndex]
+                    } else {
+                        null
+                    }
                 } else {
-                    // Get value from non-list column directly
+                    // Get value from non-list, non-struct column directly
                     val column = nonListColumns[param.name]
                     val value = column?.get(rowIndex)
                     when {
@@ -284,10 +484,142 @@ class ParquetDeserializer<T : Any>(
         }
     }
     
-    fun deserializeSequence(rowGroups: List<RowGroup>): Sequence<T> = sequence {
-        rowGroups.forEach { rowGroup ->
-            yieldAll(deserialize(rowGroup))
+    private fun reconstructStruct(
+        rowGroup: RowGroup,
+        structName: String,
+        structClass: KClass<*>,
+        rowCount: Int
+    ): List<Any?> {
+        // Get the constructor and parameters for the struct
+        val constructor = structClass.constructors.first()
+        val parameters = constructor.parameters
+        
+        // Find all columns that belong to this struct
+        val structColumnMap = mutableMapOf<String, DataColumn<*>>()
+        for (column in rowGroup.columns) {
+            // Check if column name matches a struct field
+            for (param in parameters) {
+                if (column.field.name == param.name) {
+                    structColumnMap[param.name!!] = column
+                }
+            }
         }
+        
+        // Reconstruct struct objects for each row
+        return (0 until rowCount).map { rowIndex ->
+            val args = parameters.map { param ->
+                val column = structColumnMap[param.name]
+                val value = column?.get(rowIndex)
+                when {
+                    value == null -> if (param.type.isMarkedNullable) null
+                        else throw IllegalStateException("Non-nullable parameter ${param.name} is null in struct $structName")
+                    // Convert ByteArray to String for String parameters
+                    value is ByteArray && param.type.classifier == String::class ->
+                        String(value, Charsets.UTF_8)
+                    else -> value
+                }
+            }
+            constructor.call(*args.toTypedArray())
+        }
+    }
+    
+    private fun reconstructMap(
+        rowGroup: RowGroup,
+        mapName: String,
+        rowCount: Int
+    ): List<Map<*, *>?> {
+        // Find key and value columns for this map
+        // Map columns are named "key" and "value"
+        val keyColumn = rowGroup.columns.find { it.field.name == "key" }
+        val valueColumn = rowGroup.columns.find { it.field.name == "value" }
+        
+        if (keyColumn == null || valueColumn == null) {
+            // No map data found, return list of nulls
+            return List(rowCount) { null }
+        }
+        
+        // Get repetition and definition levels
+        val repLevels = keyColumn.repetitionLevels?.toList() ?: emptyList()
+        val defLevels = keyColumn.definitionLevels?.toList() ?: emptyList()
+        
+        if (defLevels.isEmpty()) {
+            // No levels, return list of empty maps
+            return List(rowCount) { emptyMap<Any?, Any?>() }
+        }
+        
+        // Reconstruct maps using levels - similar to list reconstruction
+        val maps = mutableListOf<Map<*, *>?>()
+        var currentMap = mutableMapOf<Any?, Any?>()
+        var valueIndex = 0
+        var i = 0
+        
+        while (i < defLevels.size) {
+            val defLevel = defLevels[i]
+            val repLevel = repLevels.getOrElse(i) { 0 }
+            
+            when {
+                defLevel == 0 -> {
+                    // Null map
+                    if (currentMap.isNotEmpty()) {
+                        maps.add(currentMap.toMap())
+                        currentMap = mutableMapOf()
+                    }
+                    maps.add(null)
+                    i++
+                }
+                defLevel == 1 -> {
+                    // Empty map
+                    if (currentMap.isNotEmpty()) {
+                        maps.add(currentMap.toMap())
+                        currentMap = mutableMapOf()
+                    }
+                    maps.add(emptyMap<Any?, Any?>())
+                    i++
+                }
+                defLevel == 3 -> {
+                    // Key-value pair present
+                    if (repLevel == 0 && currentMap.isNotEmpty()) {
+                        // Start of new map, save previous
+                        maps.add(currentMap.toMap())
+                        currentMap = mutableMapOf()
+                    }
+                    
+                    // Add key-value pair
+                    if (valueIndex < keyColumn.size) {
+                        var key = keyColumn.get(valueIndex)
+                        var value = valueColumn.get(valueIndex)
+                        
+                        // Convert ByteArray to String if needed
+                        if (key is ByteArray) key = String(key, Charsets.UTF_8)
+                        if (value is ByteArray) value = String(value, Charsets.UTF_8)
+                        
+                        currentMap[key] = value
+                        valueIndex++
+                    }
+                    i++
+                }
+                else -> {
+                    // Unknown definition level, skip
+                    i++
+                }
+            }
+        }
+        
+        // Add the last map if not empty
+        if (currentMap.isNotEmpty()) {
+            maps.add(currentMap.toMap())
+        }
+        
+        // Ensure we have the right number of maps
+        while (maps.size < rowCount) {
+            maps.add(null)
+        }
+        
+        return maps
+    }
+    
+    fun deserializeSequence(rowGroups: List<RowGroup>): Sequence<T> {
+        return rowGroups.asSequence().flatMap { deserialize(it).asSequence() }
     }
     
     companion object {
