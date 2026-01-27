@@ -159,4 +159,165 @@ class LogicalTypeMetadataTest {
         println("   Logical type: ${readTimeField.logicalType}")
         println("   This will be displayed as time64[us] in modern Parquet readers")
     }
+    
+    @Test
+    fun `test STRING logical type is written to metadata`() {
+        val file = File(tempDir, "strings.parquet")
+        
+        // Create schema with STRING logical type
+        val schema = ParquetSchema.create(
+            DataField.int64("id"),
+            DataField.string("name"),
+            DataField.string("email")
+        )
+        
+        // Verify schema has STRING logical type
+        val nameField = schema.fields.find { it.name == "name" }
+        assertNotNull(nameField)
+        assertEquals(LogicalType.STRING, nameField.logicalType)
+        assertEquals(ParquetType.BYTE_ARRAY, nameField.dataType)
+        
+        // Write some data
+        val writer = ParquetWriter(file.absolutePath, schema)
+        
+        val columns = listOf(
+            com.molo17.parquetkt.data.DataColumn(schema.fields[0], arrayOf(1L)),
+            com.molo17.parquetkt.data.DataColumn(schema.fields[1], arrayOf("Alice")),
+            com.molo17.parquetkt.data.DataColumn(schema.fields[2], arrayOf("alice@example.com"))
+        )
+        writer.writeRowGroup(columns)
+        
+        writer.close()
+        
+        // Read back and verify
+        val reader = ParquetReader(file.absolutePath)
+        val readSchema = reader.schema
+        reader.close()
+        
+        val readNameField = readSchema.fields.find { it.name == "name" }
+        assertNotNull(readNameField)
+        assertEquals(LogicalType.STRING, readNameField.logicalType)
+        assertEquals(ParquetType.BYTE_ARRAY, readNameField.dataType)
+        
+        println("✅ STRING logical type correctly written to Parquet metadata")
+        println("   Field: name")
+        println("   Physical type: ${readNameField.dataType}")
+        println("   Logical type: ${readNameField.logicalType}")
+        println("   This will be displayed as utf8 in modern Parquet readers")
+    }
+    
+    @Test
+    fun `test DECIMAL logical type is written to metadata`() {
+        val file = File(tempDir, "decimals.parquet")
+        
+        // Create schema with DECIMAL logical type
+        val schema = ParquetSchema.create(
+            DataField.int64("id"),
+            DataField.decimal("price", precision = 10, scale = 2),
+            DataField.string("currency")
+        )
+        
+        // Verify schema has DECIMAL logical type with precision and scale
+        val priceField = schema.fields.find { it.name == "price" }
+        assertNotNull(priceField)
+        assertEquals(LogicalType.DECIMAL, priceField.logicalType)
+        assertEquals(ParquetType.FIXED_LEN_BYTE_ARRAY, priceField.dataType)
+        assertEquals(10, priceField.precision)
+        assertEquals(2, priceField.scale)
+        
+        // Write some data
+        val writer = ParquetWriter(file.absolutePath, schema)
+        
+        // For DECIMAL, we need to encode the value as bytes
+        // 123.45 with scale 2 = 12345 as a big integer
+        val decimalBytes = ByteArray(16) { 0 }
+        val value = 12345
+        decimalBytes[15] = (value and 0xFF).toByte()
+        decimalBytes[14] = ((value shr 8) and 0xFF).toByte()
+        
+        val columns = listOf(
+            com.molo17.parquetkt.data.DataColumn(schema.fields[0], arrayOf(1L)),
+            com.molo17.parquetkt.data.DataColumn(schema.fields[1], arrayOf(decimalBytes)),
+            com.molo17.parquetkt.data.DataColumn(schema.fields[2], arrayOf("USD"))
+        )
+        writer.writeRowGroup(columns)
+        
+        writer.close()
+        
+        // Read back and verify
+        val reader = ParquetReader(file.absolutePath)
+        val readSchema = reader.schema
+        reader.close()
+        
+        val readPriceField = readSchema.fields.find { it.name == "price" }
+        assertNotNull(readPriceField)
+        assertEquals(LogicalType.DECIMAL, readPriceField.logicalType)
+        assertEquals(ParquetType.FIXED_LEN_BYTE_ARRAY, readPriceField.dataType)
+        assertEquals(10, readPriceField.precision)
+        assertEquals(2, readPriceField.scale)
+        
+        println("✅ DECIMAL logical type correctly written to Parquet metadata")
+        println("   Field: price")
+        println("   Physical type: ${readPriceField.dataType}")
+        println("   Logical type: ${readPriceField.logicalType}")
+        println("   Precision: ${readPriceField.precision}, Scale: ${readPriceField.scale}")
+        println("   This will be displayed as decimal(10,2) in modern Parquet readers")
+    }
+    
+    @Test
+    fun `test all temporal types together`() {
+        val file = File(tempDir, "all_temporal.parquet")
+        
+        // Create schema with all temporal types
+        val schema = ParquetSchema.create(
+            DataField.int64("id"),
+            DataField.date("birth_date"),
+            DataField.time("meeting_time"),
+            DataField.timestamp("created_at"),
+            DataField.timestampMicros("updated_at"),
+            DataField.string("description")
+        )
+        
+        // Write some data
+        val writer = ParquetWriter(file.absolutePath, schema)
+        
+        val columns = listOf(
+            com.molo17.parquetkt.data.DataColumn(schema.fields[0], arrayOf(1L)),
+            com.molo17.parquetkt.data.DataColumn(schema.fields[1], arrayOf(LocalDate.of(1990, 5, 15).toEpochDay().toInt())),
+            com.molo17.parquetkt.data.DataColumn(schema.fields[2], arrayOf(36000000000L)), // 10:00:00 in micros
+            com.molo17.parquetkt.data.DataColumn(schema.fields[3], arrayOf(1705334400000L)), // millis
+            com.molo17.parquetkt.data.DataColumn(schema.fields[4], arrayOf(1705334400000000L)), // micros
+            com.molo17.parquetkt.data.DataColumn(schema.fields[5], arrayOf("Test record"))
+        )
+        writer.writeRowGroup(columns)
+        
+        writer.close()
+        
+        // Read back and verify all fields
+        val reader = ParquetReader(file.absolutePath)
+        val readSchema = reader.schema
+        reader.close()
+        
+        val birthDate = readSchema.fields.find { it.name == "birth_date" }
+        assertNotNull(birthDate)
+        assertEquals(LogicalType.DATE, birthDate.logicalType)
+        
+        val meetingTime = readSchema.fields.find { it.name == "meeting_time" }
+        assertNotNull(meetingTime)
+        assertEquals(LogicalType.TIME_MICROS, meetingTime.logicalType)
+        
+        val createdAt = readSchema.fields.find { it.name == "created_at" }
+        assertNotNull(createdAt)
+        assertEquals(LogicalType.TIMESTAMP_MILLIS, createdAt.logicalType)
+        
+        val updatedAt = readSchema.fields.find { it.name == "updated_at" }
+        assertNotNull(updatedAt)
+        assertEquals(LogicalType.TIMESTAMP_MICROS, updatedAt.logicalType)
+        
+        println("✅ All temporal logical types correctly written to Parquet metadata")
+        println("   birth_date: ${birthDate.logicalType} (date32[day])")
+        println("   meeting_time: ${meetingTime.logicalType} (time64[us])")
+        println("   created_at: ${createdAt.logicalType} (timestamp[ms, tz=UTC])")
+        println("   updated_at: ${updatedAt.logicalType} (timestamp[us, tz=UTC])")
+    }
 }
