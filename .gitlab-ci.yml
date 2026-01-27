@@ -21,6 +21,8 @@ before_script:
 
 build:
   stage: build
+  tags:
+    - hq-linux-docker
   only:
     - tags
     - main  # Remove this line if you want tags ONLY
@@ -33,6 +35,8 @@ build:
 
 test:
   stage: test
+  tags:
+    - hq-linux-docker
   only:
     - tags
     - main  # Remove this line if you want tags ONLY
@@ -49,6 +53,8 @@ test:
 # Publish to Maven Central (only on tags)
 publish:maven-central:
   stage: publish
+  tags:
+    - hq-linux-docker
   only:
     - tags
   script:
@@ -68,6 +74,8 @@ publish:maven-central:
 # Publish snapshot versions (on main branch)
 publish:snapshot:
   stage: publish
+  tags:
+    - hq-linux-docker
   only:
     - main
   except:
