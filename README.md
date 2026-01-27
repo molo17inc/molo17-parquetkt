@@ -3,7 +3,7 @@
 A fully managed, pure Kotlin library for reading and writing Apache Parquet files. This is a port of the excellent [parquet-dotnet](https://github.com/aloneguid/parquet-dotnet) library from C# to Kotlin.
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
-[![Test Coverage](https://img.shields.io/badge/tests-90%20passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
+[![Test Coverage](https://img.shields.io/badge/tests-93%20passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 ## Features
@@ -16,7 +16,7 @@ A fully managed, pure Kotlin library for reading and writing Apache Parquet file
 - 🗜️ **Compression** - Support for SNAPPY, GZIP, ZSTD, and UNCOMPRESSED
 - 🎨 **Multiple APIs** - High-level and low-level APIs for different use cases
 - ⚡ **High Performance** - 300K+ rows/second throughput
-- ✅ **Production Ready** - Comprehensive test coverage (90 tests passing)
+- ✅ **Production Ready** - Comprehensive test coverage (93 tests passing)
 - 🔧 **Nullable Fields** - Full support for optional/nullable columns
 - 🌊 **Coroutines Support** - Async I/O with suspend functions and Flow API
 
@@ -133,6 +133,73 @@ fun main() {
     ParquetFile.write("people.parquet", schema, listOf(rowGroup))
 }
 ```
+
+### Memory-Efficient Writing for Large Datasets
+
+ParquetKT automatically manages memory to prevent OOM errors when writing large datasets:
+
+```kotlin
+import com.molo17.parquetkt.io.ParquetWriter
+import com.molo17.parquetkt.data.DataColumn
+import com.molo17.parquetkt.schema.DataField
+import com.molo17.parquetkt.schema.ParquetSchema
+
+fun main() {
+    val schema = ParquetSchema.create(
+        DataField.int64("id"),
+        DataField.string("name")
+    )
+    
+    // Writer automatically flushes row groups to disk to prevent memory buildup
+    val writer = ParquetWriter(
+        outputPath = "large_file.parquet",
+        schema = schema,
+        maxRowGroupsInMemory = 10  // Auto-flush after 10 row groups (default)
+    )
+    
+    // Write many row groups - memory is automatically managed
+    for (batch in 0 until 100) {
+        val ids = Array<Long?>(1000) { (batch * 1000 + it).toLong() }
+        val names = Array<String?>(1000) { "User_${batch * 1000 + it}" }
+        
+        writer.writeRowGroup(listOf(
+            DataColumn(schema.fields[0], ids),
+            DataColumn(schema.fields[1], names)
+        ))
+        // Row groups are automatically flushed to disk when needed
+    }
+    
+    writer.close()
+}
+```
+
+**Manual flush control** for fine-grained memory management:
+
+```kotlin
+val writer = ParquetWriter(
+    outputPath = "output.parquet",
+    schema = schema,
+    maxRowGroupsInMemory = 100  // Disable auto-flush
+)
+
+// Write row groups
+for (i in 0 until 50) {
+    writer.writeRowGroup(columns)
+    
+    // Manually flush every 10 row groups
+    if ((i + 1) % 10 == 0) {
+        writer.flushRowGroups()  // Explicitly flush to disk
+    }
+}
+
+writer.close()
+```
+
+**Memory-efficient defaults:**
+
+- Row group size: 8 MB (reduced from 128 MB)
+- Page size: 256 KB (reduced from 1 MB)
+- Auto-flush after 10 row groups (~80 MB total)
 
 ### Streaming Reads
 
@@ -353,12 +420,12 @@ This library provides a similar API to parquet-dotnet while leveraging Kotlin's 
 | Nullable fields | ✅ | ✅ |
 | Compression codecs | ✅ | ✅ (4 codecs) |
 | Streaming reads | ✅ | ✅ (Sequences) |
-| Production ready | ✅ | ✅ (90 tests) |
+| Production ready | ✅ | ✅ (93 tests) |
 | Coroutines support | ❌ | ✅ (Flow API) |
 
 ## Test Coverage
 
-The library has comprehensive test coverage with **90 tests passing (100%)**:
+The library has comprehensive test coverage with **93 tests passing (100%)**:
 
 - ✅ **IntegrationTest** (5 tests) - Core read/write operations, compression codecs, nullable fields
 - ✅ **ParquetFileTest** (3 tests) - High-level API, object serialization, schema reading
@@ -373,6 +440,7 @@ The library has comprehensive test coverage with **90 tests passing (100%)**:
 - ✅ **NestedTypesSerializationTest** (9 tests) - List serialization/deserialization, file I/O, nullable lists
 - ✅ **StructsAndMapsTest** (7 tests) - Schema reflection, Struct/Map serialization/deserialization
 - ✅ **LogicalTypeMetadataTest** (6 tests) - Modern logical type support (DATE, TIME, TIMESTAMP, STRING, DECIMAL)
+- ✅ **StreamingWriteTest** (3 tests) - Memory-efficient streaming writes, auto-flush, manual flush control
 
 ## Roadmap
 
@@ -432,12 +500,13 @@ The library has comprehensive test coverage with **90 tests passing (100%)**:
   - ✅ Dictionary encoding for string/categorical columns (enabled by default, fully compatible with external readers)
   - ✅ Reflection caching to avoid repeated property access overhead
   - ✅ Parallel compression of column chunks (multi-core utilization)
-  - ⏳ Streaming serialization for large datasets
+  - ✅ **Streaming serialization for large datasets** - Auto-flush mechanism prevents OOM errors
+  - ✅ **Memory-efficient defaults** - Reduced row group size (8 MB) and page size (256 KB) to prevent memory exhaustion
+  - ✅ **Manual flush control** - `flushRowGroups()` method for fine-grained memory management
   - ⏳ Reusable byte buffer pools
   - ⏳ Pre-allocated arrays to reduce GC pressure
   - ⏳ Adaptive page sizing based on data characteristics
   - ⏳ Delta encoding for sorted/sequential numeric data
-  - ⏳ Memory-mapped I/O for very large files
 - 📋 Column projection (reading subset of columns)
 - 📋 Parallel processing for multi-core systems
 

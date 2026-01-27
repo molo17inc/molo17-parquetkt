@@ -43,12 +43,16 @@ class ParquetWriter(
     private val pageSize: Int = DEFAULT_PAGE_SIZE,
     private val enableDictionary: Boolean = true,  // Enabled by default for better compression on repetitive data
     private val bufferSize: Int = DEFAULT_BUFFER_SIZE,
-    private val enableParallelCompression: Boolean = true
+    private val enableParallelCompression: Boolean = true,
+    private val maxRowGroupsInMemory: Int = DEFAULT_MAX_ROW_GROUPS_IN_MEMORY  // Auto-flush after this many row groups
 ) : Closeable {
     
     private val outputStream: OutputStream = BufferedOutputStream(FileOutputStream(outputPath), bufferSize)
     private var isClosed = false
     private val rowGroups = mutableListOf<RowGroup>()
+    private var isHeaderWritten = false
+    private var currentFileOffset = ParquetConstants.MAGIC_LENGTH.toLong()
+    private val writtenRowGroupMetadata = mutableListOf<com.molo17.parquetkt.thrift.RowGroup>()
     
     fun write(rowGroup: RowGroup) {
         checkNotClosed()
@@ -56,12 +60,46 @@ class ParquetWriter(
             "RowGroup schema must match writer schema"
         }
         rowGroups.add(rowGroup)
+        
+        // Auto-flush if we have too many row groups in memory
+        if (rowGroups.size >= maxRowGroupsInMemory) {
+            flushRowGroups()
+        }
     }
     
     fun writeRowGroup(columns: List<DataColumn<*>>) {
         checkNotClosed()
         val rowGroup = RowGroup(schema, columns)
         write(rowGroup)
+    }
+    
+    /**
+     * Manually flush accumulated row groups to disk.
+     * This is useful for controlling memory usage when writing large datasets.
+     * Row groups are automatically flushed when maxRowGroupsInMemory is reached.
+     */
+    fun flushRowGroups() {
+        if (rowGroups.isEmpty()) return
+        
+        val writer = BinaryWriter(outputStream)
+        
+        // Write header on first flush
+        if (!isHeaderWritten) {
+            writer.writeBytes(ParquetConstants.MAGIC_BYTES)
+            writer.flush()
+            isHeaderWritten = true
+        }
+        
+        // Write accumulated row groups
+        for (rowGroup in rowGroups) {
+            val (metadata, bytesWritten) = writeRowGroupToFile(writer, rowGroup, currentFileOffset)
+            writtenRowGroupMetadata.add(metadata)
+            currentFileOffset += bytesWritten
+            writer.flush()
+        }
+        
+        // Clear row groups from memory
+        rowGroups.clear()
     }
     
     fun <T> writeColumn(field: String, data: List<T?>) {
@@ -88,35 +126,28 @@ class ParquetWriter(
     }
     
     private fun flush() {
-        if (rowGroups.isEmpty()) return
-        
         val writer = BinaryWriter(outputStream)
         
-        // 1. Write magic number "PAR1"
-        writer.writeBytes(ParquetConstants.MAGIC_BYTES)
-        writer.flush()
+        // Flush any remaining row groups
+        flushRowGroups()
         
-        // 2. Write row groups and collect metadata
-        val rowGroupMetadata = ArrayList<com.molo17.parquetkt.thrift.RowGroup>(rowGroups.size)
-        var currentOffset = ParquetConstants.MAGIC_LENGTH.toLong()
-        
-        for (rowGroup in rowGroups) {
-            val (metadata, bytesWritten) = writeRowGroupToFile(writer, rowGroup, currentOffset)
-            rowGroupMetadata.add(metadata)
-            currentOffset += bytesWritten
-            writer.flush() // Flush after each row group
+        // If no row groups were written at all, write header now
+        if (!isHeaderWritten) {
+            writer.writeBytes(ParquetConstants.MAGIC_BYTES)
+            writer.flush()
+            isHeaderWritten = true
+            currentFileOffset = ParquetConstants.MAGIC_LENGTH.toLong()
         }
         
-        // 3. Write file metadata
-        val metadataOffset = currentOffset
-        val fileMetadata = createFileMetadata(rowGroupMetadata)
+        // Write file metadata using all written row groups
+        val fileMetadata = createFileMetadata(writtenRowGroupMetadata)
         val metadataBytes = serializeFileMetadata(fileMetadata)
         writer.writeBytes(metadataBytes)
         
-        // 4. Write footer with metadata length
+        // Write footer with metadata length
         writer.writeInt32(metadataBytes.size)
         
-        // 5. Write magic number "PAR1" at end
+        // Write magic number "PAR1" at end
         writer.writeBytes(ParquetConstants.MAGIC_BYTES)
         
         writer.flush()
@@ -571,9 +602,10 @@ class ParquetWriter(
     }
     
     companion object {
-        const val DEFAULT_ROW_GROUP_SIZE = 128 * 1024 * 1024 // 128 MB
-        const val DEFAULT_PAGE_SIZE = 1024 * 1024 // 1 MB
+        const val DEFAULT_ROW_GROUP_SIZE = 8 * 1024 * 1024 // 8 MB - reduced from 128 MB to prevent OOM
+        const val DEFAULT_PAGE_SIZE = 256 * 1024 // 256 KB - reduced from 1 MB for better memory efficiency
         const val DEFAULT_BUFFER_SIZE = 64 * 1024 // 64 KB buffer for I/O operations
+        const val DEFAULT_MAX_ROW_GROUPS_IN_MEMORY = 10 // Auto-flush after 10 row groups (~80 MB with default size)
         
         fun create(
             file: File,
