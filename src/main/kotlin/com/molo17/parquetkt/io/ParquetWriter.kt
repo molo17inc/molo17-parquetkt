@@ -41,7 +41,7 @@ class ParquetWriter(
     private val compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
     private val rowGroupSize: Int = DEFAULT_ROW_GROUP_SIZE,
     private val pageSize: Int = DEFAULT_PAGE_SIZE,
-    private val enableDictionary: Boolean = true,
+    private val enableDictionary: Boolean = false,  // Disabled by default - online readers have compatibility issues
     private val bufferSize: Int = DEFAULT_BUFFER_SIZE,
     private val enableParallelCompression: Boolean = true
 ) : Closeable {
@@ -328,7 +328,6 @@ class ParquetWriter(
         
         val encodings = mutableListOf(Encoding.RLE)
         if (dictionaryPageData != null) {
-            encodings.add(Encoding.PLAIN)
             encodings.add(Encoding.RLE_DICTIONARY)
         } else {
             encodings.add(encoding)
@@ -494,7 +493,6 @@ class ParquetWriter(
         
         val encodings = mutableListOf(Encoding.RLE)
         if (preparedData.dictionaryPageData != null) {
-            encodings.add(Encoding.PLAIN)
             encodings.add(Encoding.RLE_DICTIONARY)
         } else {
             encodings.add(preparedData.encoding)
