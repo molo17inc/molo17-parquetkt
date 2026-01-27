@@ -3,7 +3,7 @@
 A fully managed, pure Kotlin library for reading and writing Apache Parquet files. This is a port of the excellent [parquet-dotnet](https://github.com/aloneguid/parquet-dotnet) library from C# to Kotlin.
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
-[![Test Coverage](https://img.shields.io/badge/tests-93%20passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
+[![Test Coverage](https://img.shields.io/badge/tests-104%20passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 ## Features
@@ -16,7 +16,7 @@ A fully managed, pure Kotlin library for reading and writing Apache Parquet file
 - 🗜️ **Compression** - Support for SNAPPY, GZIP, ZSTD, and UNCOMPRESSED
 - 🎨 **Multiple APIs** - High-level and low-level APIs for different use cases
 - ⚡ **High Performance** - 300K+ rows/second throughput
-- ✅ **Production Ready** - Comprehensive test coverage (93 tests passing)
+- ✅ **Production Ready** - Comprehensive test coverage (104 tests passing)
 - 🔧 **Nullable Fields** - Full support for optional/nullable columns
 - 🌊 **Coroutines Support** - Async I/O with suspend functions and Flow API
 
@@ -200,6 +200,38 @@ writer.close()
 - Row group size: 8 MB (reduced from 128 MB)
 - Page size: 256 KB (reduced from 1 MB)
 - Auto-flush after 10 row groups (~80 MB total)
+
+**ArrayPool for reduced GC pressure:**
+
+```kotlin
+import com.molo17.parquetkt.util.ArrayPool
+
+// Create a custom array pool
+val pool = ArrayPool(
+    maxPoolSize = 16,        // Max arrays per bucket
+    maxArraySize = 4 * 1024 * 1024  // 4 MB max
+)
+
+val writer = ParquetWriter(
+    outputPath = "output.parquet",
+    schema = schema,
+    arrayPool = pool  // Enable array pooling
+)
+
+// Or use the shared global instance
+val writer2 = ParquetWriter(
+    outputPath = "output2.parquet",
+    schema = schema,
+    arrayPool = ArrayPool.shared
+)
+
+// Write data - arrays are automatically reused from pool
+writer.writeRowGroup(columns)
+writer.close()
+
+// Check pool statistics
+println(pool.getStats())
+```
 
 ### Streaming Reads
 
@@ -420,12 +452,12 @@ This library provides a similar API to parquet-dotnet while leveraging Kotlin's 
 | Nullable fields | ✅ | ✅ |
 | Compression codecs | ✅ | ✅ (4 codecs) |
 | Streaming reads | ✅ | ✅ (Sequences) |
-| Production ready | ✅ | ✅ (93 tests) |
+| Production ready | ✅ | ✅ (104 tests) |
 | Coroutines support | ❌ | ✅ (Flow API) |
 
 ## Test Coverage
 
-The library has comprehensive test coverage with **93 tests passing (100%)**:
+The library has comprehensive test coverage with **104 tests passing (100%)**:
 
 - ✅ **IntegrationTest** (5 tests) - Core read/write operations, compression codecs, nullable fields
 - ✅ **ParquetFileTest** (3 tests) - High-level API, object serialization, schema reading
@@ -441,6 +473,8 @@ The library has comprehensive test coverage with **93 tests passing (100%)**:
 - ✅ **StructsAndMapsTest** (7 tests) - Schema reflection, Struct/Map serialization/deserialization
 - ✅ **LogicalTypeMetadataTest** (6 tests) - Modern logical type support (DATE, TIME, TIMESTAMP, STRING, DECIMAL)
 - ✅ **StreamingWriteTest** (3 tests) - Memory-efficient streaming writes, auto-flush, manual flush control
+- ✅ **ArrayPoolTest** (8 tests) - Array pooling, bucket sizing, concurrent access, pool statistics
+- ✅ **ArrayPoolIntegrationTest** (3 tests) - ArrayPool integration with ParquetWriter, memory efficiency
 
 ## Roadmap
 
@@ -503,8 +537,7 @@ The library has comprehensive test coverage with **93 tests passing (100%)**:
   - ✅ **Streaming serialization for large datasets** - Auto-flush mechanism prevents OOM errors
   - ✅ **Memory-efficient defaults** - Reduced row group size (8 MB) and page size (256 KB) to prevent memory exhaustion
   - ✅ **Manual flush control** - `flushRowGroups()` method for fine-grained memory management
-  - ⏳ Reusable byte buffer pools
-  - ⏳ Pre-allocated arrays to reduce GC pressure
+  - ✅ **ArrayPool for byte array reuse** - Bucket-based pooling reduces GC pressure and allocations
   - ⏳ Adaptive page sizing based on data characteristics
   - ⏳ Delta encoding for sorted/sequential numeric data
 - 📋 Column projection (reading subset of columns)

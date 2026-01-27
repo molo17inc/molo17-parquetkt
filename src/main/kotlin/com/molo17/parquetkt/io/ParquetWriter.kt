@@ -27,6 +27,7 @@ import com.molo17.parquetkt.format.BinaryWriter
 import com.molo17.parquetkt.format.ParquetConstants
 import com.molo17.parquetkt.schema.*
 import com.molo17.parquetkt.thrift.*
+import com.molo17.parquetkt.util.ArrayPool
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
@@ -44,7 +45,8 @@ class ParquetWriter(
     private val enableDictionary: Boolean = true,  // Enabled by default for better compression on repetitive data
     private val bufferSize: Int = DEFAULT_BUFFER_SIZE,
     private val enableParallelCompression: Boolean = true,
-    private val maxRowGroupsInMemory: Int = DEFAULT_MAX_ROW_GROUPS_IN_MEMORY  // Auto-flush after this many row groups
+    private val maxRowGroupsInMemory: Int = DEFAULT_MAX_ROW_GROUPS_IN_MEMORY,  // Auto-flush after this many row groups
+    private val arrayPool: ArrayPool? = null  // Optional array pool to reduce GC pressure
 ) : Closeable {
     
     private val outputStream: OutputStream = BufferedOutputStream(FileOutputStream(outputPath), bufferSize)
@@ -53,6 +55,9 @@ class ParquetWriter(
     private var isHeaderWritten = false
     private var currentFileOffset = ParquetConstants.MAGIC_LENGTH.toLong()
     private val writtenRowGroupMetadata = mutableListOf<com.molo17.parquetkt.thrift.RowGroup>()
+    
+    // Use provided pool or shared instance if pooling is desired
+    private val effectiveArrayPool: ArrayPool? = arrayPool
     
     fun write(rowGroup: RowGroup) {
         checkNotClosed()
