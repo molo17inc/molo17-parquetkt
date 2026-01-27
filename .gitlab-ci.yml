@@ -1,0 +1,80 @@
+image: gradle:8.5-jdk21
+
+variables:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+
+cache:
+  key: "$CI_COMMIT_REF_SLUG"
+  paths:
+    - .gradle/wrapper
+    - .gradle/caches
+
+stages:
+  - build
+  - test
+  - publish
+
+before_script:
+  - export GRADLE_USER_HOME=`pwd`/.gradle
+  - chmod +x ./gradlew
+
+build:
+  stage: build
+  script:
+    - ./gradlew clean build -x test
+  artifacts:
+    paths:
+      - build/libs/
+    expire_in: 1 week
+
+test:
+  stage: test
+  script:
+    - ./gradlew test
+  artifacts:
+    when: always
+    reports:
+      junit: build/test-results/test/TEST-*.xml
+    paths:
+      - build/reports/tests/
+    expire_in: 1 week
+
+# Publish to Maven Central (only on tags)
+publish:maven-central:
+  stage: publish
+  only:
+    - tags
+  script:
+    # Import GPG key for signing
+    - echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
+    
+    # Publish to Maven Central via Sonatype OSSRH
+    - ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
+      -Psigning.gnupg.keyName="$GPG_KEY_ID"
+      -Psigning.gnupg.passphrase="$GPG_PASSPHRASE"
+      -PsonatypeUsername="$SONATYPE_USERNAME"
+      -PsonatypePassword="$SONATYPE_PASSWORD"
+  environment:
+    name: maven-central
+    url: https://central.sonatype.com/artifact/com.molo17/parquetkt
+
+# Publish snapshot versions (on main branch)
+publish:snapshot:
+  stage: publish
+  only:
+    - main
+  except:
+    - tags
+  script:
+    - echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
+    
+    # Publish snapshot to Sonatype snapshots repository
+    - ./gradlew publishToSonatype
+      -Psigning.gnupg.keyName="$GPG_KEY_ID"
+      -Psigning.gnupg.passphrase="$GPG_PASSPHRASE"
+      -PsonatypeUsername="$SONATYPE_USERNAME"
+      -PsonatypePassword="$SONATYPE_PASSWORD"
+  environment:
+    name: maven-central-snapshots
+    url: https://s01.oss.sonatype.org/content/repositories/snapshots/com/molo17/parquetkt/

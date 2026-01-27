@@ -1,10 +1,12 @@
 plugins {
     kotlin("jvm") version "1.9.22"
     `maven-publish`
+    signing
     id("org.jetbrains.dokka") version "1.9.10"
+    id("io.github.gradle-nexus.publish-plugin") version "1.3.0"
 }
 
-group = "com.molo17.parquetkt"
+group = "com.molo17"
 version = "1.0.0-SNAPSHOT"
 
 repositories {
@@ -53,5 +55,78 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
     kotlinOptions {
         freeCompilerArgs = listOf("-Xjsr305=strict")
         jvmTarget = "17"
+    }
+}
+
+// Create sources jar
+val sourcesJar by tasks.registering(Jar::class) {
+    archiveClassifier.set("sources")
+    from(sourceSets.main.get().allSource)
+}
+
+// Create javadoc jar using Dokka
+val dokkaHtml by tasks.getting(org.jetbrains.dokka.gradle.DokkaTask::class)
+val javadocJar by tasks.registering(Jar::class) {
+    dependsOn(dokkaHtml)
+    archiveClassifier.set("javadoc")
+    from(dokkaHtml.outputDirectory)
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("mavenKotlin") {
+            from(components["java"])
+            artifact(sourcesJar)
+            artifact(javadocJar)
+            
+            groupId = "com.molo17"
+            artifactId = "parquetkt"
+            version = project.version.toString()
+            
+            pom {
+                name.set("ParquetKT")
+                description.set("A pure Kotlin library for reading and writing Apache Parquet files")
+                url.set("https://github.com/molo17/parquetkt")
+                
+                licenses {
+                    license {
+                        name.set("The Apache License, Version 2.0")
+                        url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                    }
+                }
+                
+                developers {
+                    developer {
+                        id.set("danieleangeli")
+                        name.set("Daniele Angeli")
+                        email.set("daniele@molo17.com")
+                        organization.set("MOLO17")
+                        organizationUrl.set("https://www.molo17.com")
+                    }
+                }
+                
+                scm {
+                    connection.set("scm:git:git://github.com/molo17/parquetkt.git")
+                    developerConnection.set("scm:git:ssh://github.com/molo17/parquetkt.git")
+                    url.set("https://github.com/molo17/parquetkt")
+                }
+            }
+        }
+    }
+}
+
+signing {
+    useGpgCmd()
+    sign(publishing.publications["mavenKotlin"])
+}
+
+nexusPublishing {
+    repositories {
+        sonatype {
+            nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
+            snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
+            username.set(project.findProperty("sonatypeUsername") as String? ?: System.getenv("SONATYPE_USERNAME"))
+            password.set(project.findProperty("sonatypePassword") as String? ?: System.getenv("SONATYPE_PASSWORD"))
+        }
     }
 }
