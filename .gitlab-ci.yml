@@ -67,6 +67,11 @@ publish:maven-central:
       -Psigning.gnupg.passphrase="$GPG_PASSPHRASE"
       -PsonatypeUsername="$SONATYPE_USERNAME"
       -PsonatypePassword="$SONATYPE_PASSWORD"
+  artifacts:
+    paths:
+      - build/libs/*.jar
+      - build/publications/
+    expire_in: 1 month
   environment:
     name: maven-central
     url: https://central.sonatype.com/artifact/com.molo17/parquetkt
@@ -89,6 +94,11 @@ publish:snapshot:
       -Psigning.gnupg.passphrase="$GPG_PASSPHRASE"
       -PsonatypeUsername="$SONATYPE_USERNAME"
       -PsonatypePassword="$SONATYPE_PASSWORD"
+  artifacts:
+    paths:
+      - build/libs/*.jar
+      - build/publications/
+    expire_in: 1 week
   environment:
     name: maven-central-snapshots
     url: https://s01.oss.sonatype.org/content/repositories/snapshots/com/molo17/parquetkt/
