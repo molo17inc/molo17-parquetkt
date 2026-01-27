@@ -41,7 +41,7 @@ class ParquetWriter(
     private val compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
     private val rowGroupSize: Int = DEFAULT_ROW_GROUP_SIZE,
     private val pageSize: Int = DEFAULT_PAGE_SIZE,
-    private val enableDictionary: Boolean = false,  // Disabled by default - online readers have compatibility issues
+    private val enableDictionary: Boolean = true,  // Enabled by default for better compression on repetitive data
     private val bufferSize: Int = DEFAULT_BUFFER_SIZE,
     private val enableParallelCompression: Boolean = true
 ) : Closeable {

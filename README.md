@@ -428,7 +428,7 @@ The library has comprehensive test coverage with **74/74 tests passing (100%)**:
 - 📋 DataFrame integration
 - 📋 **Performance optimizations for writing**
   - ✅ Buffered I/O for reduced system calls
-  - ⚠️ Dictionary encoding for string/categorical columns (implemented but disabled by default due to external reader compatibility issues)
+  - ✅ Dictionary encoding for string/categorical columns (enabled by default, fully compatible with external readers)
   - ✅ Reflection caching to avoid repeated property access overhead
   - ✅ Parallel compression of column chunks (multi-core utilization)
   - ⏳ Streaming serialization for large datasets
