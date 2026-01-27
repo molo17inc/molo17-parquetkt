@@ -33,6 +33,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
+import kotlinx.coroutines.*
 
 class ParquetWriter(
     private val outputPath: String,
@@ -41,7 +42,8 @@ class ParquetWriter(
     private val rowGroupSize: Int = DEFAULT_ROW_GROUP_SIZE,
     private val pageSize: Int = DEFAULT_PAGE_SIZE,
     private val enableDictionary: Boolean = true,
-    private val bufferSize: Int = DEFAULT_BUFFER_SIZE
+    private val bufferSize: Int = DEFAULT_BUFFER_SIZE,
+    private val enableParallelCompression: Boolean = true
 ) : Closeable {
     
     private val outputStream: OutputStream = BufferedOutputStream(FileOutputStream(outputPath), bufferSize)
@@ -125,6 +127,18 @@ class ParquetWriter(
         rowGroup: RowGroup,
         startOffset: Long
     ): Pair<com.molo17.parquetkt.thrift.RowGroup, Long> {
+        if (enableParallelCompression && rowGroup.columnCount > 1) {
+            return writeRowGroupParallel(writer, rowGroup, startOffset)
+        } else {
+            return writeRowGroupSequential(writer, rowGroup, startOffset)
+        }
+    }
+    
+    private fun writeRowGroupSequential(
+        writer: BinaryWriter,
+        rowGroup: RowGroup,
+        startOffset: Long
+    ): Pair<com.molo17.parquetkt.thrift.RowGroup, Long> {
         val columnChunks = mutableListOf<ColumnChunk>()
         var currentOffset = startOffset
         var totalByteSize = 0L
@@ -134,6 +148,46 @@ class ParquetWriter(
             val field = schema.getField(i)
             
             val (columnChunk, bytesWritten) = writeColumnChunk(writer, column, field, currentOffset)
+            columnChunks.add(columnChunk)
+            currentOffset += bytesWritten
+            totalByteSize += bytesWritten
+        }
+        
+        val rowGroupMetadata = com.molo17.parquetkt.thrift.RowGroup(
+            columns = columnChunks,
+            totalByteSize = totalByteSize,
+            numRows = rowGroup.rowCount.toLong(),
+            fileOffset = startOffset
+        )
+        
+        return rowGroupMetadata to totalByteSize
+    }
+    
+    private fun writeRowGroupParallel(
+        writer: BinaryWriter,
+        rowGroup: RowGroup,
+        startOffset: Long
+    ): Pair<com.molo17.parquetkt.thrift.RowGroup, Long> {
+        // Prepare column data in parallel
+        val compressedColumns = runBlocking {
+            (0 until rowGroup.columnCount).map { i ->
+                async(Dispatchers.Default) {
+                    val column = rowGroup.getColumn(i)
+                    val field = schema.getField(i)
+                    prepareColumnChunkData(column, field)
+                }
+            }.awaitAll()
+        }
+        
+        // Write compressed data sequentially to maintain file structure
+        val columnChunks = mutableListOf<ColumnChunk>()
+        var currentOffset = startOffset
+        var totalByteSize = 0L
+        
+        for (i in compressedColumns.indices) {
+            val field = schema.getField(i)
+            val preparedData = compressedColumns[i]
+            val (columnChunk, bytesWritten) = writeColumnChunkData(writer, preparedData, field, currentOffset)
             columnChunks.add(columnChunk)
             currentOffset += bytesWritten
             totalByteSize += bytesWritten
@@ -300,10 +354,177 @@ class ParquetWriter(
         return columnChunk to totalSize
     }
     
+    private data class PreparedColumnData(
+        val compressedData: ByteArray,
+        val uncompressedSize: Int,
+        val encoding: Encoding,
+        val dictionaryPageData: DictionaryPageData?,
+        val columnSize: Int
+    )
+    
     private data class DictionaryPageData(
         val data: ByteArray,
         val numValues: Int
     )
+    
+    private fun prepareColumnChunkData(
+        column: DataColumn<*>,
+        field: DataField
+    ): PreparedColumnData {
+        // Try dictionary encoding for string/byte array columns if enabled
+        val useDictionary = enableDictionary && 
+                           DictionaryEncoder.canUseDictionary(field.dataType) &&
+                           column.definedData.isNotEmpty() &&
+                           column.repetitionLevels == null
+        
+        val (encodedData, encoding, dictionaryPageData) = if (useDictionary) {
+            tryDictionaryEncoding(column.definedData as Array<Any>, field.dataType)
+        } else {
+            val encoder = PlainEncoder(field.dataType)
+            Triple(encoder.encode(column.definedData as Array<Any>), Encoding.PLAIN, null)
+        }
+        
+        // Prepare uncompressed page data
+        val pageDataOutput = ByteArrayOutputStream()
+        val pageWriter = BinaryWriter(pageDataOutput)
+        
+        // Write repetition levels if present
+        if (column.repetitionLevels != null && field.maxRepetitionLevel > 0) {
+            val encodedRepLevels = com.molo17.parquetkt.encoding.LevelEncoder.encodeLevels(
+                column.repetitionLevels.toList()
+            )
+            pageWriter.writeInt32(encodedRepLevels.size)
+            pageWriter.writeBytes(encodedRepLevels)
+        }
+        
+        // Write definition levels if present
+        if (column.definitionLevels != null) {
+            val encodedDefLevels = com.molo17.parquetkt.encoding.LevelEncoder.encodeLevels(
+                column.definitionLevels.toList()
+            )
+            pageWriter.writeInt32(encodedDefLevels.size)
+            pageWriter.writeBytes(encodedDefLevels)
+        } else if (field.isNullable) {
+            val dataField = column.javaClass.getDeclaredField("data")
+            dataField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val data = dataField.get(column) as Array<Any?>
+            val levels = IntArray(data.size)
+            for (i in data.indices) {
+                levels[i] = if (data[i] == null) 0 else 1
+            }
+            val rleEncoder = com.molo17.parquetkt.encoding.RleEncoder(1)
+            val encodedDefLevels = rleEncoder.encode(levels)
+            pageWriter.writeInt32(encodedDefLevels.size)
+            pageWriter.writeBytes(encodedDefLevels)
+        }
+        
+        // Write encoded values
+        pageWriter.writeBytes(encodedData)
+        pageWriter.flush()
+        
+        val uncompressedPageData = pageDataOutput.toByteArray()
+        
+        // Compress the entire page (levels + data)
+        val compressor = CompressionCodecFactory.getCompressor(compressionCodec)
+        val compressedData = compressor.compress(uncompressedPageData)
+        
+        return PreparedColumnData(
+            compressedData = compressedData,
+            uncompressedSize = uncompressedPageData.size,
+            encoding = encoding,
+            dictionaryPageData = dictionaryPageData,
+            columnSize = column.size
+        )
+    }
+    
+    private fun writeColumnChunkData(
+        writer: BinaryWriter,
+        preparedData: PreparedColumnData,
+        field: DataField,
+        startOffset: Long
+    ): Pair<ColumnChunk, Long> {
+        var currentOffset = startOffset
+        
+        // Write dictionary page if present
+        if (preparedData.dictionaryPageData != null) {
+            val dictPageHeader = DictionaryPageHeader(
+                numValues = preparedData.dictionaryPageData.numValues,
+                encoding = Encoding.PLAIN
+            )
+            val dictPageHeaderBytes = serializePageHeader(PageHeader(
+                type = PageType.DICTIONARY_PAGE,
+                uncompressedPageSize = preparedData.dictionaryPageData.data.size,
+                compressedPageSize = preparedData.dictionaryPageData.data.size,
+                dictionaryPageHeader = dictPageHeader
+            ))
+            writer.writeBytes(dictPageHeaderBytes)
+            currentOffset += dictPageHeaderBytes.size
+            writer.writeBytes(preparedData.dictionaryPageData.data)
+            currentOffset += preparedData.dictionaryPageData.data.size
+        }
+        
+        // Write DATA_PAGE header
+        val pageHeader = DataPageHeader(
+            numValues = preparedData.columnSize,
+            encoding = preparedData.encoding,
+            definitionLevelEncoding = Encoding.RLE,
+            repetitionLevelEncoding = Encoding.RLE
+        )
+        
+        val pageHeaderBytes = serializePageHeader(PageHeader(
+            type = PageType.DATA_PAGE,
+            uncompressedPageSize = preparedData.uncompressedSize,
+            compressedPageSize = preparedData.compressedData.size,
+            dataPageHeader = pageHeader
+        ))
+        
+        writer.writeBytes(pageHeaderBytes)
+        currentOffset += pageHeaderBytes.size
+        
+        // Write compressed data
+        writer.writeBytes(preparedData.compressedData)
+        currentOffset += preparedData.compressedData.size
+        
+        // Flush to ensure all data is written
+        writer.flush()
+        
+        val totalSize = currentOffset - startOffset
+        val totalCompressedSizeWithHeader = pageHeaderBytes.size.toLong() + preparedData.compressedData.size
+        
+        val encodings = mutableListOf(Encoding.RLE)
+        if (preparedData.dictionaryPageData != null) {
+            encodings.add(Encoding.PLAIN)
+            encodings.add(Encoding.RLE_DICTIONARY)
+        } else {
+            encodings.add(preparedData.encoding)
+        }
+        
+        val dataPageOffset = if (preparedData.dictionaryPageData != null) {
+            currentOffset - (pageHeaderBytes.size + preparedData.compressedData.size)
+        } else {
+            startOffset
+        }
+        
+        val columnMetadata = ColumnMetaData(
+            type = field.dataType,
+            encodings = encodings,
+            pathInSchema = listOf(field.name),
+            codec = compressionCodec,
+            numValues = preparedData.columnSize.toLong(),
+            totalUncompressedSize = preparedData.uncompressedSize.toLong(),
+            totalCompressedSize = totalCompressedSizeWithHeader,
+            dataPageOffset = dataPageOffset,
+            dictionaryPageOffset = if (preparedData.dictionaryPageData != null) startOffset else null
+        )
+        
+        val columnChunk = ColumnChunk(
+            fileOffset = 0,
+            metaData = columnMetadata
+        )
+        
+        return columnChunk to totalSize
+    }
     
     private fun tryDictionaryEncoding(
         values: Array<Any>,
