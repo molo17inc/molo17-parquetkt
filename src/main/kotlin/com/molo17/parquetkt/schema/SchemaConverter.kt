@@ -64,7 +64,8 @@ object SchemaConverter {
             convertedType = toConvertedType(field.logicalType),
             scale = field.scale,
             precision = field.precision,
-            fieldId = null
+            fieldId = null,
+            logicalType = toLogicalTypeAnnotation(field.logicalType, field.precision, field.scale)
         )
     }
     
@@ -149,6 +150,50 @@ object SchemaConverter {
             ConvertedType.BSON -> LogicalType.BSON
             ConvertedType.INTERVAL -> LogicalType.INTERVAL
             ConvertedType.MAP, ConvertedType.MAP_KEY_VALUE, ConvertedType.LIST -> LogicalType.NONE
+        }
+    }
+    
+    private fun toLogicalTypeAnnotation(logicalType: LogicalType, precision: Int?, scale: Int?): com.molo17.parquetkt.thrift.LogicalTypeAnnotation? {
+        return when (logicalType) {
+            LogicalType.NONE -> null
+            LogicalType.STRING -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.String
+            LogicalType.ENUM -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Enum
+            LogicalType.DATE -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Date
+            LogicalType.JSON -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Json
+            LogicalType.BSON -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Bson
+            LogicalType.UUID -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Uuid
+            LogicalType.DECIMAL -> {
+                if (precision != null && scale != null) {
+                    com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Decimal(precision, scale)
+                } else null
+            }
+            LogicalType.TIME_MILLIS -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Time(
+                isAdjustedToUTC = true,
+                unit = com.molo17.parquetkt.thrift.TimeUnit.MILLIS
+            )
+            LogicalType.TIME_MICROS -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Time(
+                isAdjustedToUTC = true,
+                unit = com.molo17.parquetkt.thrift.TimeUnit.MICROS
+            )
+            LogicalType.TIMESTAMP_MILLIS -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Timestamp(
+                isAdjustedToUTC = true,
+                unit = com.molo17.parquetkt.thrift.TimeUnit.MILLIS
+            )
+            LogicalType.TIMESTAMP_MICROS -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Timestamp(
+                isAdjustedToUTC = true,
+                unit = com.molo17.parquetkt.thrift.TimeUnit.MICROS
+            )
+            LogicalType.UINT_8 -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Integer(8, false)
+            LogicalType.UINT_16 -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Integer(16, false)
+            LogicalType.UINT_32 -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Integer(32, false)
+            LogicalType.UINT_64 -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Integer(64, false)
+            LogicalType.INT_8 -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Integer(8, true)
+            LogicalType.INT_16 -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Integer(16, true)
+            LogicalType.INT_32 -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Integer(32, true)
+            LogicalType.INT_64 -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Integer(64, true)
+            LogicalType.LIST -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.List
+            LogicalType.MAP -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Map
+            LogicalType.INTERVAL -> null // INTERVAL doesn't have a modern LogicalType representation
         }
     }
 }

@@ -79,6 +79,10 @@ object ThriftDeserializer {
         var name = ""
         var numChildren: Int? = null
         var repetitionType: FieldRepetitionType? = null
+        var convertedType: ConvertedType? = null
+        var logicalType: LogicalTypeAnnotation? = null
+        var scale: Int? = null
+        var precision: Int? = null
         
         var lastFieldId = 0
         while (true) {
@@ -105,6 +109,13 @@ object ThriftDeserializer {
                 }
                 4 -> name = readString(reader)
                 5 -> numChildren = reader.readInt32Zigzag()
+                6 -> {
+                    val ordinal = reader.readInt32Zigzag()
+                    convertedType = ConvertedType.values().getOrNull(ordinal)
+                }
+                7 -> logicalType = readLogicalType(reader)
+                8 -> scale = reader.readInt32Zigzag()
+                9 -> precision = reader.readInt32Zigzag()
                 else -> skipField(reader, fieldType)
             }
         }
@@ -113,8 +124,165 @@ object ThriftDeserializer {
             type = type,
             name = name,
             numChildren = numChildren,
-            repetitionType = repetitionType
+            repetitionType = repetitionType,
+            convertedType = convertedType,
+            scale = scale,
+            precision = precision,
+            logicalType = logicalType
         )
+    }
+    
+    private fun readLogicalType(reader: BinaryReader): LogicalTypeAnnotation? {
+        var result: LogicalTypeAnnotation? = null
+        
+        var lastFieldId = 0
+        while (true) {
+            val fieldHeader = reader.readByte().toInt() and 0xFF
+            if (fieldHeader == 0) break
+            
+            val fieldDelta = (fieldHeader shr 4) and 0x0F
+            val fieldType = fieldHeader and 0x0F
+            val fieldId = if (fieldDelta == 0) reader.readInt32Zigzag() else lastFieldId + fieldDelta
+            lastFieldId = fieldId
+            
+            result = when (fieldId) {
+                1 -> { skipField(reader, fieldType); LogicalTypeAnnotation.String }
+                2 -> readDecimalType(reader)
+                3 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Enum }
+                4 -> { skipField(reader, fieldType); LogicalTypeAnnotation.List }
+                5 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Date }
+                6 -> readTimeType(reader)
+                7 -> readTimestampType(reader)
+                8 -> readIntegerType(reader)
+                9 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Map }
+                10 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Json }
+                11 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Bson }
+                12 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Uuid }
+                else -> { skipField(reader, fieldType); null }
+            }
+        }
+        
+        return result
+    }
+    
+    private fun readDecimalType(reader: BinaryReader): LogicalTypeAnnotation.Decimal {
+        var scale = 0
+        var precision = 0
+        
+        var lastFieldId = 0
+        while (true) {
+            val fieldHeader = reader.readByte().toInt() and 0xFF
+            if (fieldHeader == 0) break
+            
+            val fieldDelta = (fieldHeader shr 4) and 0x0F
+            val fieldType = fieldHeader and 0x0F
+            val fieldId = if (fieldDelta == 0) reader.readInt32Zigzag() else lastFieldId + fieldDelta
+            lastFieldId = fieldId
+            
+            when (fieldId) {
+                1 -> scale = reader.readInt32Zigzag()
+                2 -> precision = reader.readInt32Zigzag()
+                else -> skipField(reader, fieldType)
+            }
+        }
+        
+        return LogicalTypeAnnotation.Decimal(precision, scale)
+    }
+    
+    private fun readTimeType(reader: BinaryReader): LogicalTypeAnnotation.Time {
+        var isAdjustedToUTC = true
+        var unit = TimeUnit.MILLIS
+        
+        var lastFieldId = 0
+        while (true) {
+            val fieldHeader = reader.readByte().toInt() and 0xFF
+            if (fieldHeader == 0) break
+            
+            val fieldDelta = (fieldHeader shr 4) and 0x0F
+            val fieldType = fieldHeader and 0x0F
+            val fieldId = if (fieldDelta == 0) reader.readInt32Zigzag() else lastFieldId + fieldDelta
+            lastFieldId = fieldId
+            
+            when (fieldId) {
+                1 -> isAdjustedToUTC = fieldType == 1 // TRUE
+                2 -> unit = readTimeUnit(reader)
+                else -> skipField(reader, fieldType)
+            }
+        }
+        
+        return LogicalTypeAnnotation.Time(isAdjustedToUTC, unit)
+    }
+    
+    private fun readTimestampType(reader: BinaryReader): LogicalTypeAnnotation.Timestamp {
+        var isAdjustedToUTC = true
+        var unit = TimeUnit.MILLIS
+        
+        var lastFieldId = 0
+        while (true) {
+            val fieldHeader = reader.readByte().toInt() and 0xFF
+            if (fieldHeader == 0) break
+            
+            val fieldDelta = (fieldHeader shr 4) and 0x0F
+            val fieldType = fieldHeader and 0x0F
+            val fieldId = if (fieldDelta == 0) reader.readInt32Zigzag() else lastFieldId + fieldDelta
+            lastFieldId = fieldId
+            
+            when (fieldId) {
+                1 -> isAdjustedToUTC = fieldType == 1 // TRUE
+                2 -> unit = readTimeUnit(reader)
+                else -> skipField(reader, fieldType)
+            }
+        }
+        
+        return LogicalTypeAnnotation.Timestamp(isAdjustedToUTC, unit)
+    }
+    
+    private fun readIntegerType(reader: BinaryReader): LogicalTypeAnnotation.Integer {
+        var bitWidth = 32
+        var isSigned = true
+        
+        var lastFieldId = 0
+        while (true) {
+            val fieldHeader = reader.readByte().toInt() and 0xFF
+            if (fieldHeader == 0) break
+            
+            val fieldDelta = (fieldHeader shr 4) and 0x0F
+            val fieldType = fieldHeader and 0x0F
+            val fieldId = if (fieldDelta == 0) reader.readInt32Zigzag() else lastFieldId + fieldDelta
+            lastFieldId = fieldId
+            
+            when (fieldId) {
+                1 -> bitWidth = reader.readByte().toInt()
+                2 -> isSigned = fieldType == 1 // TRUE
+                else -> skipField(reader, fieldType)
+            }
+        }
+        
+        return LogicalTypeAnnotation.Integer(bitWidth, isSigned)
+    }
+    
+    private fun readTimeUnit(reader: BinaryReader): TimeUnit {
+        var result = TimeUnit.MILLIS
+        
+        var lastFieldId = 0
+        while (true) {
+            val fieldHeader = reader.readByte().toInt() and 0xFF
+            if (fieldHeader == 0) break
+            
+            val fieldDelta = (fieldHeader shr 4) and 0x0F
+            val fieldType = fieldHeader and 0x0F
+            val fieldId = if (fieldDelta == 0) reader.readInt32Zigzag() else lastFieldId + fieldDelta
+            lastFieldId = fieldId
+            
+            result = when (fieldId) {
+                1 -> { skipField(reader, fieldType); TimeUnit.MILLIS }
+                2 -> { skipField(reader, fieldType); TimeUnit.MICROS }
+                3 -> { skipField(reader, fieldType); TimeUnit.NANOS }
+                else -> { skipField(reader, fieldType); TimeUnit.MILLIS }
+            }
+        }
+        
+        return result
     }
     
     private fun readRowGroupList(reader: BinaryReader): List<RowGroup> {

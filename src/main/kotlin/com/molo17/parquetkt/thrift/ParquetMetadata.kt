@@ -39,7 +39,8 @@ data class SchemaElement(
     val convertedType: ConvertedType? = null,
     val scale: Int? = null,
     val precision: Int? = null,
-    val fieldId: Int? = null
+    val fieldId: Int? = null,
+    val logicalType: LogicalTypeAnnotation? = null
 )
 
 data class RowGroup(
@@ -178,4 +179,25 @@ enum class ConvertedType {
     JSON,
     BSON,
     INTERVAL
+}
+
+sealed class LogicalTypeAnnotation {
+    object String : LogicalTypeAnnotation()
+    object Enum : LogicalTypeAnnotation()
+    object Date : LogicalTypeAnnotation()
+    object Json : LogicalTypeAnnotation()
+    object Bson : LogicalTypeAnnotation()
+    object Uuid : LogicalTypeAnnotation()
+    data class Decimal(val precision: Int, val scale: Int) : LogicalTypeAnnotation()
+    data class Time(val isAdjustedToUTC: Boolean, val unit: TimeUnit) : LogicalTypeAnnotation()
+    data class Timestamp(val isAdjustedToUTC: Boolean, val unit: TimeUnit) : LogicalTypeAnnotation()
+    data class Integer(val bitWidth: Int, val isSigned: Boolean) : LogicalTypeAnnotation()
+    object List : LogicalTypeAnnotation()
+    object Map : LogicalTypeAnnotation()
+}
+
+enum class TimeUnit {
+    MILLIS,
+    MICROS,
+    NANOS
 }
