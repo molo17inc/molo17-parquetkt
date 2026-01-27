@@ -131,6 +131,33 @@ data class DataField(
                 repetition = if (nullable) Repetition.OPTIONAL else Repetition.REQUIRED
             )
         }
+
+        fun timestampMicros(name: String, nullable: Boolean = false): DataField {
+            return DataField(
+                name = name,
+                dataType = ParquetType.INT64,
+                logicalType = LogicalType.TIMESTAMP_MICROS,
+                repetition = if (nullable) Repetition.OPTIONAL else Repetition.REQUIRED
+            )
+        }
+
+        fun localTimestampMicros(name: String, nullable: Boolean = false): DataField {
+            return DataField(
+                name = name,
+                dataType = ParquetType.INT64,
+                logicalType = LogicalType.TIMESTAMP_MICROS,
+                repetition = if (nullable) Repetition.OPTIONAL else Repetition.REQUIRED
+            )
+        }
+
+        fun time(name: String, nullable: Boolean = false): DataField {
+            return DataField(
+                name = name,
+                dataType = ParquetType.INT64,
+                logicalType = LogicalType.TIME_MICROS,
+                repetition = if (nullable) Repetition.OPTIONAL else Repetition.REQUIRED
+            )
+        }
         
         /**
          * Create a list field (repeated values).
