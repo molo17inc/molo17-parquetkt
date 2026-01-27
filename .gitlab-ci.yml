@@ -21,6 +21,9 @@ before_script:
 
 build:
   stage: build
+  only:
+    - tags
+    - main  # Remove this line if you want tags ONLY
   script:
     - ./gradlew clean build -x test
   artifacts:
@@ -30,6 +33,9 @@ build:
 
 test:
   stage: test
+  only:
+    - tags
+    - main  # Remove this line if you want tags ONLY
   script:
     - ./gradlew test
   artifacts:
