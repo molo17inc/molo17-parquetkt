@@ -108,6 +108,7 @@ class GenerateTestFileForOnlineReader {
         
         // Quick verification
         val reader = ParquetReader(outputFile.absolutePath)
+        val readSchema = reader.schema // Initialize metadata
         val fileMetadata = reader.javaClass.getDeclaredField("fileMetadata").let {
             it.isAccessible = true
             it.get(reader) as com.molo17.parquetkt.thrift.FileMetaData

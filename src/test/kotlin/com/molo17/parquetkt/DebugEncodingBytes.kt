@@ -29,6 +29,7 @@ class DebugEncodingBytes {
         
         // Read and check encodings
         val reader = ParquetReader(outputFile.absolutePath)
+        val readSchema = reader.schema // Initialize metadata
         val fileMetadata = reader.javaClass.getDeclaredField("fileMetadata").let {
             it.isAccessible = true
             it.get(reader) as com.molo17.parquetkt.thrift.FileMetaData
@@ -47,7 +48,7 @@ class DebugEncodingBytes {
         
         // Check what we expect
         println("\nExpected encodings:")
-        println("  RLE (2) for definition levels")
+        println("  RLE (3) for definition levels")
         println("  PLAIN (0) for data")
         
         println("\nActual thrift values written: ${encodings.map { it.thriftValue }}")

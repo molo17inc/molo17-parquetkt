@@ -18,6 +18,7 @@ package com.molo17.parquetkt
 
 import com.molo17.parquetkt.core.ParquetFile
 import com.molo17.parquetkt.io.ParquetReader
+import com.molo17.parquetkt.io.ParquetWriter
 import com.molo17.parquetkt.schema.Encoding
 import com.molo17.parquetkt.schema.ParquetType
 import com.molo17.parquetkt.serialization.ParquetDeserializer
@@ -56,11 +57,14 @@ class DictionaryEncodingCompatibilityTest {
         
         val file = File(tempDir, "dict_encoded_test.parquet")
         
-        // Write with dictionary encoding enabled (default)
+        // Write with dictionary encoding explicitly enabled
         val schema = SchemaReflector.reflectSchema<TestData>()
         val serializer = ParquetSerializer.create<TestData>()
         val rowGroup = serializer.serialize(data, schema)
-        ParquetFile.write(file.absolutePath, schema, listOf(rowGroup))
+        
+        ParquetWriter(file.absolutePath, schema, enableDictionary = true).use { writer ->
+            writer.write(rowGroup)
+        }
         
         // Read the file metadata directly to validate encodings
         val reader = ParquetReader(file.absolutePath)
@@ -145,11 +149,14 @@ class DictionaryEncodingCompatibilityTest {
         
         val dictFile = File(tempDir, "with_dictionary.parquet")
         
-        // Write with dictionary encoding
+        // Write with dictionary encoding explicitly enabled
         val schema = SchemaReflector.reflectSchema<TestData>()
         val serializer = ParquetSerializer.create<TestData>()
         val rowGroup = serializer.serialize(repetitiveData, schema)
-        ParquetFile.write(dictFile.absolutePath, schema, listOf(rowGroup))
+        
+        ParquetWriter(dictFile.absolutePath, schema, enableDictionary = true).use { writer ->
+            writer.write(rowGroup)
+        }
         
         val dictFileSize = dictFile.length()
         

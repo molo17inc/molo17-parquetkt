@@ -88,11 +88,13 @@ enum class CompressionCodec(val thriftValue: Int) {
 
 enum class Encoding(val thriftValue: Int) {
     PLAIN(0),
-    PLAIN_DICTIONARY(1),
-    RLE(2),
-    BIT_PACKED(3),
-    DELTA_BINARY_PACKED(4),
-    DELTA_LENGTH_BYTE_ARRAY(5),
-    DELTA_BYTE_ARRAY(6),
-    RLE_DICTIONARY(7)
+    // GROUP_VAR_INT(1) - deprecated, never used
+    PLAIN_DICTIONARY(2),  // Deprecated: use RLE_DICTIONARY in data pages
+    RLE(3),
+    BIT_PACKED(4),
+    DELTA_BINARY_PACKED(5),
+    DELTA_LENGTH_BYTE_ARRAY(6),
+    DELTA_BYTE_ARRAY(7),
+    RLE_DICTIONARY(8),
+    BYTE_STREAM_SPLIT(9)
 }
