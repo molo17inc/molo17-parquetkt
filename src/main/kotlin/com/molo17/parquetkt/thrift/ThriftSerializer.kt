@@ -216,12 +216,73 @@ object ThriftSerializer {
         writer.writeVarLong(zigzagEncode(metadata.totalCompressedSize))
         lastFieldId = 7
         
+        // Field 8: statistics (struct) - optional
+        if (metadata.statistics != null) {
+            writeFieldBegin(writer, 8, lastFieldId, ThriftType.STRUCT)
+            serializeStatistics(writer, metadata.statistics)
+            lastFieldId = 8
+        }
+        
         // Field 9: data_page_offset (i64)
         writeFieldBegin(writer, 9, lastFieldId, ThriftType.I64)
         writer.writeVarLong(zigzagEncode(metadata.dataPageOffset))
         
         // Stop field
         writer.writeByte(0)
+    }
+    
+    private fun serializeStatistics(writer: BinaryWriter, stats: Statistics) {
+        var lastFieldId = 0
+        
+        // Field 1: max (binary) - optional
+        if (stats.max != null) {
+            writeFieldBegin(writer, 1, lastFieldId, ThriftType.STRING)
+            writeBinary(writer, stats.max)
+            lastFieldId = 1
+        }
+        
+        // Field 2: min (binary) - optional
+        if (stats.min != null) {
+            writeFieldBegin(writer, 2, lastFieldId, ThriftType.STRING)
+            writeBinary(writer, stats.min)
+            lastFieldId = 2
+        }
+        
+        // Field 3: null_count (i64) - optional
+        if (stats.nullCount != null) {
+            writeFieldBegin(writer, 3, lastFieldId, ThriftType.I64)
+            writer.writeVarLong(zigzagEncode(stats.nullCount))
+            lastFieldId = 3
+        }
+        
+        // Field 4: distinct_count (i64) - optional
+        if (stats.distinctCount != null) {
+            writeFieldBegin(writer, 4, lastFieldId, ThriftType.I64)
+            writer.writeVarLong(zigzagEncode(stats.distinctCount))
+            lastFieldId = 4
+        }
+        
+        // Field 5: max_value (binary) - optional
+        if (stats.maxValue != null) {
+            writeFieldBegin(writer, 5, lastFieldId, ThriftType.STRING)
+            writeBinary(writer, stats.maxValue)
+            lastFieldId = 5
+        }
+        
+        // Field 6: min_value (binary) - optional
+        if (stats.minValue != null) {
+            writeFieldBegin(writer, 6, lastFieldId, ThriftType.STRING)
+            writeBinary(writer, stats.minValue)
+            lastFieldId = 6
+        }
+        
+        // Stop field
+        writer.writeByte(0)
+    }
+    
+    private fun writeBinary(writer: BinaryWriter, data: ByteArray) {
+        writer.writeVarInt(data.size)
+        writer.writeBytes(data)
     }
     
     private fun writeFieldBegin(writer: BinaryWriter, fieldId: Int, lastFieldId: Int, type: ThriftType) {

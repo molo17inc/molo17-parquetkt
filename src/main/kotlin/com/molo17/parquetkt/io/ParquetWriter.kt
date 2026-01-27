@@ -26,6 +26,7 @@ import com.molo17.parquetkt.encoding.RleEncoder
 import com.molo17.parquetkt.format.BinaryWriter
 import com.molo17.parquetkt.format.ParquetConstants
 import com.molo17.parquetkt.schema.*
+import com.molo17.parquetkt.statistics.StatisticsCalculator
 import com.molo17.parquetkt.thrift.*
 import com.molo17.parquetkt.util.ArrayPool
 import java.io.BufferedOutputStream
@@ -394,7 +395,8 @@ class ParquetWriter(
         val uncompressedSize: Int,
         val encoding: Encoding,
         val dictionaryPageData: DictionaryPageData?,
-        val columnSize: Int
+        val columnSize: Int,
+        val statistics: com.molo17.parquetkt.thrift.Statistics?
     )
     
     private data class DictionaryPageData(
@@ -460,6 +462,13 @@ class ParquetWriter(
         
         val uncompressedPageData = pageDataOutput.toByteArray()
         
+        // Calculate statistics for the column
+        val dataField = column.javaClass.getDeclaredField("data")
+        dataField.isAccessible = true
+        @Suppress("UNCHECKED_CAST")
+        val allData = dataField.get(column) as Array<Any?>
+        val statistics = StatisticsCalculator.calculate(field.dataType, allData)
+        
         // Compress the entire page (levels + data)
         val compressor = CompressionCodecFactory.getCompressor(compressionCodec)
         val compressedData = compressor.compress(uncompressedPageData)
@@ -469,7 +478,8 @@ class ParquetWriter(
             uncompressedSize = uncompressedPageData.size,
             encoding = encoding,
             dictionaryPageData = dictionaryPageData,
-            columnSize = column.size
+            columnSize = column.size,
+            statistics = statistics
         )
     }
     
@@ -552,7 +562,8 @@ class ParquetWriter(
             totalUncompressedSize = preparedData.uncompressedSize.toLong(),
             totalCompressedSize = totalCompressedSizeWithHeader,
             dataPageOffset = dataPageOffset,
-            dictionaryPageOffset = dictionaryPageOffset
+            dictionaryPageOffset = dictionaryPageOffset,
+            statistics = preparedData.statistics
         )
         
         val columnChunk = ColumnChunk(

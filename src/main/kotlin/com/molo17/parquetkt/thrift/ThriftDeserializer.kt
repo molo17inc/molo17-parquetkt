@@ -373,6 +373,7 @@ object ThriftDeserializer {
         var totalUncompressedSize = 0L
         var totalCompressedSize = 0L
         var dataPageOffset = 0L
+        var statistics: Statistics? = null
         
         var lastFieldId = 0
         while (true) {
@@ -398,6 +399,7 @@ object ThriftDeserializer {
                 5 -> numValues = reader.readInt64Zigzag()
                 6 -> totalUncompressedSize = reader.readInt64Zigzag()
                 7 -> totalCompressedSize = reader.readInt64Zigzag()
+                8 -> statistics = readStatistics(reader)
                 9 -> dataPageOffset = reader.readInt64Zigzag()
                 else -> skipField(reader, fieldType)
             }
@@ -411,8 +413,53 @@ object ThriftDeserializer {
             numValues = numValues,
             totalUncompressedSize = totalUncompressedSize,
             totalCompressedSize = totalCompressedSize,
-            dataPageOffset = dataPageOffset
+            dataPageOffset = dataPageOffset,
+            statistics = statistics
         )
+    }
+    
+    private fun readStatistics(reader: BinaryReader): Statistics {
+        var max: ByteArray? = null
+        var min: ByteArray? = null
+        var nullCount: Long? = null
+        var distinctCount: Long? = null
+        var maxValue: ByteArray? = null
+        var minValue: ByteArray? = null
+        
+        var lastFieldId = 0
+        while (true) {
+            val fieldHeader = reader.readByte().toInt() and 0xFF
+            if (fieldHeader == 0) break
+            
+            val fieldDelta = (fieldHeader shr 4) and 0x0F
+            val fieldType = fieldHeader and 0x0F
+            val fieldId = if (fieldDelta == 0) reader.readInt32Zigzag() else lastFieldId + fieldDelta
+            lastFieldId = fieldId
+            
+            when (fieldId) {
+                1 -> max = readBinary(reader)
+                2 -> min = readBinary(reader)
+                3 -> nullCount = reader.readInt64Zigzag()
+                4 -> distinctCount = reader.readInt64Zigzag()
+                5 -> maxValue = readBinary(reader)
+                6 -> minValue = readBinary(reader)
+                else -> skipField(reader, fieldType)
+            }
+        }
+        
+        return Statistics(
+            max = max,
+            min = min,
+            nullCount = nullCount,
+            distinctCount = distinctCount,
+            maxValue = maxValue,
+            minValue = minValue
+        )
+    }
+    
+    private fun readBinary(reader: BinaryReader): ByteArray {
+        val length = reader.readVarInt()
+        return reader.readBytes(length)
     }
     
     private fun readEncodingList(reader: BinaryReader): List<Encoding> {
