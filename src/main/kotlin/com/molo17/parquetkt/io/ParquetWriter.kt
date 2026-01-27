@@ -444,9 +444,13 @@ class ParquetWriter(
         startOffset: Long
     ): Pair<ColumnChunk, Long> {
         var currentOffset = startOffset
+        val dictionaryPageOffset: Long?
+        val dataPageOffset: Long
         
-        // Write dictionary page if present
+        // Write dictionary page if present (MUST be before data page)
         if (preparedData.dictionaryPageData != null) {
+            dictionaryPageOffset = currentOffset
+            
             val dictPageHeader = DictionaryPageHeader(
                 numValues = preparedData.dictionaryPageData.numValues,
                 encoding = Encoding.PLAIN
@@ -461,7 +465,12 @@ class ParquetWriter(
             currentOffset += dictPageHeaderBytes.size
             writer.writeBytes(preparedData.dictionaryPageData.data)
             currentOffset += preparedData.dictionaryPageData.data.size
+        } else {
+            dictionaryPageOffset = null
         }
+        
+        // Record data page offset BEFORE writing it
+        dataPageOffset = currentOffset
         
         // Write DATA_PAGE header
         val pageHeader = DataPageHeader(
@@ -498,12 +507,6 @@ class ParquetWriter(
             encodings.add(preparedData.encoding)
         }
         
-        val dataPageOffset = if (preparedData.dictionaryPageData != null) {
-            currentOffset - (pageHeaderBytes.size + preparedData.compressedData.size)
-        } else {
-            startOffset
-        }
-        
         val columnMetadata = ColumnMetaData(
             type = field.dataType,
             encodings = encodings,
@@ -513,7 +516,7 @@ class ParquetWriter(
             totalUncompressedSize = preparedData.uncompressedSize.toLong(),
             totalCompressedSize = totalCompressedSizeWithHeader,
             dataPageOffset = dataPageOffset,
-            dictionaryPageOffset = if (preparedData.dictionaryPageData != null) startOffset else null
+            dictionaryPageOffset = dictionaryPageOffset
         )
         
         val columnChunk = ColumnChunk(

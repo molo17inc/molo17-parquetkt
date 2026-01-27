@@ -28,7 +28,9 @@ class DictionaryEncoder(private val type: ParquetType) {
     
     fun add(value: Any) {
         val index = dictionary.getOrPut(value) {
+            val currentIndex = nextIndex
             nextIndex++
+            currentIndex
         }
         indices.add(index)
     }
