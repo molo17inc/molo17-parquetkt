@@ -62,11 +62,28 @@ object SchemaReflector {
             else -> {
                 if (javaType.typeName.startsWith("java.util.List") || 
                     javaType.typeName.startsWith("kotlin.collections.List")) {
+                    // Extract element type from List<T>
+                    val elementType = type.arguments.firstOrNull()?.type
+                    val (dataType, logicalType) = when (elementType?.javaType?.typeName) {
+                        "java.lang.String" -> ParquetType.BYTE_ARRAY to LogicalType.STRING
+                        "int", "java.lang.Integer" -> ParquetType.INT32 to LogicalType.NONE
+                        "long", "java.lang.Long" -> ParquetType.INT64 to LogicalType.NONE
+                        "float", "java.lang.Float" -> ParquetType.FLOAT to LogicalType.NONE
+                        "double", "java.lang.Double" -> ParquetType.DOUBLE to LogicalType.NONE
+                        "boolean", "java.lang.Boolean" -> ParquetType.BOOLEAN to LogicalType.NONE
+                        else -> ParquetType.BYTE_ARRAY to LogicalType.STRING // Default to String
+                    }
+                    
+                    // For lists, set maxRepetitionLevel=1 and maxDefinitionLevel based on nullability
+                    // For nullable list: Level 0=null list, 1=empty list, 2=null element, 3=element present
+                    // For non-nullable list: Level 0=empty list, 1=element present
                     DataField(
                         name = name,
-                        dataType = ParquetType.BYTE_ARRAY,
-                        logicalType = LogicalType.STRING,
-                        repetition = com.molo17.parquetkt.schema.Repetition.REPEATED
+                        dataType = dataType,
+                        logicalType = logicalType,
+                        repetition = com.molo17.parquetkt.schema.Repetition.REPEATED,
+                        maxRepetitionLevel = 1,
+                        maxDefinitionLevel = if (nullable) 3 else 1
                     )
                 } else {
                     throw IllegalArgumentException("Unsupported type: ${javaType.typeName}")

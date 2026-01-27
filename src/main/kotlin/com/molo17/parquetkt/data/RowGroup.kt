@@ -46,7 +46,10 @@ class RowGroup(
         if (nonNestedColumns.isNotEmpty()) {
             val firstSize = nonNestedColumns.first().size
             require(nonNestedColumns.all { it.size == firstSize }) {
-                "All non-nested columns must have the same number of rows"
+                val columnInfo = nonNestedColumns.map { 
+                    "${it.field.name}: size=${it.size}, repLevels=${it.repetitionLevels != null}" 
+                }.joinToString(", ")
+                "All non-nested columns must have the same number of rows. Columns: $columnInfo"
             }
         }
     }

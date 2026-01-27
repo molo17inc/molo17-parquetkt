@@ -69,16 +69,29 @@ object SchemaConverter {
     }
     
     private fun fromThriftSchemaElement(element: SchemaElement): DataField {
+        val repetition = when (element.repetitionType) {
+            FieldRepetitionType.REQUIRED -> Repetition.REQUIRED
+            FieldRepetitionType.OPTIONAL -> Repetition.OPTIONAL
+            FieldRepetitionType.REPEATED -> Repetition.REPEATED
+            null -> Repetition.REQUIRED
+        }
+        
+        // Calculate max levels based on repetition type
+        // For REPEATED fields, we assume they're lists with the standard 3-level structure
+        val maxRepetitionLevel = if (repetition == Repetition.REPEATED) 1 else 0
+        val maxDefinitionLevel = when (repetition) {
+            Repetition.OPTIONAL -> 1
+            Repetition.REPEATED -> 2 // For lists: 0=null list, 1=empty list, 2=element present
+            Repetition.REQUIRED -> 0
+        }
+        
         return DataField(
             name = element.name,
             dataType = element.type ?: throw IllegalArgumentException("Type is required"),
             logicalType = fromConvertedType(element.convertedType),
-            repetition = when (element.repetitionType) {
-                FieldRepetitionType.REQUIRED -> Repetition.REQUIRED
-                FieldRepetitionType.OPTIONAL -> Repetition.OPTIONAL
-                FieldRepetitionType.REPEATED -> Repetition.REPEATED
-                null -> Repetition.REQUIRED
-            },
+            repetition = repetition,
+            maxRepetitionLevel = maxRepetitionLevel,
+            maxDefinitionLevel = maxDefinitionLevel,
             length = element.typeLength,
             precision = element.precision,
             scale = element.scale

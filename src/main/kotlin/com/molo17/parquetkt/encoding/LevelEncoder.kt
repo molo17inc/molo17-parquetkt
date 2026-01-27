@@ -57,22 +57,19 @@ object LevelEncoder {
     /**
      * Decode levels from varint encoding.
      */
-    fun decodeLevels(data: ByteArray, count: Int): List<Int> {
-        if (data.isEmpty() || count == 0) {
+    fun decodeLevels(data: ByteArray, expectedCount: Int): List<Int> {
+        if (data.isEmpty()) {
             return emptyList()
         }
         
         val reader = BinaryReader(data.inputStream())
         val levels = mutableListOf<Int>()
         
-        // Read count (verify it matches expected)
+        // Read count from encoded data
         val actualCount = reader.readVarInt()
-        require(actualCount == count) { 
-            "Level count mismatch: expected $count, got $actualCount" 
-        }
         
-        // Read levels
-        repeat(count) {
+        // Read all levels from the encoded data
+        repeat(actualCount) {
             levels.add(reader.readVarInt())
         }
         

@@ -192,18 +192,22 @@ class ParquetReader(
         val uncompressedData = compressor.decompress(compressedData, pageHeader.uncompressedPageSize)
         
         // Parse definition levels and data from uncompressed page
+        // Track position manually to know where value data starts
+        var position = 0
         val reader = BinaryReader(ByteArrayInputStream(uncompressedData))
+        
         // Read repetition levels if present (for nested types)
         var repetitionLevels: IntArray? = null
-        var dataOffset = 0
         
         if (field.maxRepetitionLevel > 0) {
             // Read repetition level length
             val repLevelLength = reader.readInt32()
-            dataOffset += 4 + repLevelLength
+            position += 4
             
             // Read and decode repetition levels
             val repLevelBytes = reader.readBytes(repLevelLength)
+            position += repLevelLength
+            
             repetitionLevels = com.molo17.parquetkt.encoding.LevelEncoder.decodeLevels(
                 repLevelBytes, 
                 metadata.numValues.toInt()
@@ -217,10 +221,11 @@ class ParquetReader(
         if (field.maxDefinitionLevel > 0 || field.isNullable) {
             // Read definition level length
             val defLevelLength = reader.readInt32()
-            dataOffset += 4 + defLevelLength
+            position += 4
             
             // Read definition level data
             val defLevelBytes = reader.readBytes(defLevelLength)
+            position += defLevelLength
             
             // Try LevelEncoder first (for nested types), fall back to RLE
             definitionLevels = try {
@@ -234,17 +239,29 @@ class ParquetReader(
                 rleDecoder.decode(defLevelBytes, metadata.numValues.toInt())
             }
             
-            // Count non-null values (definition level > 0 means value is present)
-            nonNullCount = definitionLevels?.count { it > 0 } ?: metadata.numValues.toInt()
+            // Count non-null values
+            // For list columns (with repetition levels), definition level at max means value is present
+            // For simple nullable columns, definition level > 0 means value is present
+            nonNullCount = if (repetitionLevels != null && field.maxDefinitionLevel > 1) {
+                // For lists, use the actual max definition level from the data
+                // This handles cases where the schema's maxDefLevel doesn't match the actual data
+                val actualMaxDefLevel = definitionLevels?.maxOrNull() ?: field.maxDefinitionLevel
+                definitionLevels?.count { it == actualMaxDefLevel } ?: metadata.numValues.toInt()
+            } else {
+                // For simple nullable fields, count any non-zero definition level
+                definitionLevels?.count { it > 0 } ?: metadata.numValues.toInt()
+            }
         }
         
         // Decode values from remaining data (only non-null values are encoded)
-        val valueData = uncompressedData.copyOfRange(dataOffset, uncompressedData.size)
+        val valueData = uncompressedData.copyOfRange(position, uncompressedData.size)
         val decoder = PlainDecoder(field.dataType)
         val values = decoder.decode(valueData, nonNullCount)
         
         // Reconstruct with nulls if needed
-        val finalData = if (definitionLevels != null) {
+        // For list columns (with repetition levels), keep flattened values as-is
+        // The reconstruction will happen later using NestedDataReconstructor
+        val finalData = if (definitionLevels != null && repetitionLevels == null) {
             reconstructWithNulls(values, definitionLevels)
         } else {
             values

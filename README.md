@@ -358,7 +358,7 @@ This library provides a similar API to parquet-dotnet while leveraging Kotlin's 
 
 ## Test Coverage
 
-The library has comprehensive test coverage with **58/58 tests passing (100%)**:
+The library has comprehensive test coverage with **67/67 tests passing (100%)**:
 
 - ✅ **IntegrationTest** (5 tests) - Core read/write operations, compression codecs, nullable fields
 - ✅ **ParquetFileTest** (3 tests) - High-level API, object serialization, schema reading
@@ -370,6 +370,7 @@ The library has comprehensive test coverage with **58/58 tests passing (100%)**:
 - ✅ **NestedDataColumnTest** (6 tests) - Nested data columns, reconstruction, round-trip
 - ✅ **NestedTypesEndToEndTest** (4 tests) - End-to-end nested types integration
 - ✅ **LevelEncoderTest** (7 tests) - Level encoding/decoding with varints
+- ✅ **NestedTypesSerializationTest** (9 tests) - List serialization/deserialization, file I/O, nullable lists
 
 ## Roadmap
 
@@ -381,9 +382,7 @@ The library has comprehensive test coverage with **58/58 tests passing (100%)**:
 - ✅ Nullable fields with definition levels
 - ✅ String encoding/decoding (UTF-8)
 
-### In Progress 🚧
-
-- 🚧 **Nested types (Lists, Maps, Structs)** - ~85% complete, core infrastructure ready
+- ✅ **Nested types - Lists** - 100% complete
   - ✅ Hierarchical schema structures (NestedField)
   - ✅ Level calculation and data flattening
   - ✅ Data reconstruction from columnar format
@@ -392,8 +391,16 @@ The library has comprehensive test coverage with **58/58 tests passing (100%)**:
   - ✅ Thrift serialization
   - ✅ ParquetWriter integration (repetition & definition levels)
   - ✅ ParquetReader integration (level reading & reconstruction)
-  - 🚧 ParquetSerializer extension for List<T> properties
-  - 🚧 End-to-end file I/O testing
+  - ✅ ParquetSerializer extension for List<T> properties
+  - ✅ End-to-end file I/O testing
+  - ✅ Support for List<String>, List<Int>, List<Long>, List<Double>, List<Float>, List<Boolean>
+  - ✅ Nullable lists (List<T>?)
+  - ✅ Empty lists
+  - ✅ Multiple list properties per class
+
+### In Progress 🚧
+
+- 🚧 **Nested types - Maps and Structs** - Infrastructure ready, implementation pending
 - 🚧 Predicate pushdown for efficient filtering
 - 🚧 Statistics support
 

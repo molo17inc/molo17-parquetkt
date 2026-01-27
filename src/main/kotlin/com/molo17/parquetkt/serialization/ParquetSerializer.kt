@@ -25,6 +25,7 @@ import com.molo17.parquetkt.schema.NestedField
 import com.molo17.parquetkt.schema.ParquetSchema
 import com.molo17.parquetkt.schema.ParquetType
 import com.molo17.parquetkt.schema.LogicalType
+import com.molo17.parquetkt.schema.Repetition
 import kotlin.reflect.KClass
 import kotlin.reflect.KProperty1
 import kotlin.reflect.KType
@@ -86,15 +87,36 @@ class ParquetSerializer<T : Any>(
         @Suppress("UNCHECKED_CAST")
         val column = NestedDataColumn.createForList<Any?>(nestedField, listData as List<List<Any?>?>)
         
+        // Get the element type from the nested field to create the correct field for the column
+        val elementField = getElementFieldFromNestedField(nestedField)
+        
+        // Use property nullability, not field nullability, to determine the correct levels
+        val isPropertyNullable = property.returnType.isMarkedNullable
+        val columnField = DataField(
+            name = field.name,
+            dataType = elementField.dataType,
+            logicalType = elementField.logicalType ?: LogicalType.NONE,
+            repetition = if (isPropertyNullable) Repetition.OPTIONAL else Repetition.REQUIRED,
+            maxRepetitionLevel = 1,
+            maxDefinitionLevel = if (isPropertyNullable) 3 else 1
+        )
+        
         // Store the flattened values in the data array
         // The levels arrays indicate the structure and boundaries
         @Suppress("UNCHECKED_CAST")
         return DataColumn(
-            field = field,
+            field = columnField,
             data = column.values.toTypedArray() as Array<Any?>,
             definitionLevels = column.definitionLevels.toIntArray(),
             repetitionLevels = column.repetitionLevels.toIntArray()
         ) as DataColumn<*>
+    }
+    
+    private fun getElementFieldFromNestedField(nestedField: NestedField.Group): NestedField.Primitive {
+        // Navigate through the 3-level list structure to get the element field
+        // Structure: list -> list.element (group) -> list.element.element (primitive)
+        val listElement = nestedField.children.first() as NestedField.Group
+        return listElement.children.first() as NestedField.Primitive
     }
     
     private fun createNestedFieldForList(
@@ -169,22 +191,71 @@ class ParquetDeserializer<T : Any>(
                 // Find the column for this parameter
                 val column = rowGroup.columns.find { it.field.name == param.name }
                 if (column != null && column.repetitionLevels != null) {
-                    // Reconstruct the list data using definedData (non-null values)
+                    // For list columns, the data array contains flattened values
+                    // We need to get non-null values from the data array
+                    val defLevels = column.definitionLevels?.toList() ?: emptyList()
+                    val repLevels = column.repetitionLevels.toList()
+                    
+                    // Use definedData which already filters nulls, but if it's empty, 
+                    // the values might be stored differently in the data array
+                    val flattenedValues = if (column.definedData.isNotEmpty()) {
+                        column.definedData.toList()
+                    } else {
+                        // For nullable lists, values might be in data array at specific positions
+                        // corresponding to definition levels at max level
+                        val maxDefLevel = defLevels.maxOrNull() ?: 0
+                        val values = mutableListOf<Any>()
+                        var valueIndex = 0
+                        for (defLevel in defLevels) {
+                            if (defLevel == maxDefLevel) {
+                                // There should be a value here
+                                if (valueIndex < column.size) {
+                                    val value = column.get(valueIndex)
+                                    if (value != null) {
+                                        values.add(value)
+                                    }
+                                }
+                                valueIndex++
+                            }
+                        }
+                        values
+                    }
+                    
+                    // Check if we need to convert ByteArray to String for List<String>
+                    val elementType = param.type.arguments.firstOrNull()?.type?.classifier
+                    val convertedValues = if (elementType == String::class && flattenedValues.firstOrNull() is ByteArray) {
+                        flattenedValues.map { value ->
+                            if (value is ByteArray) String(value, Charsets.UTF_8) else value
+                        }
+                    } else {
+                        flattenedValues
+                    }
+                    
+                    // Reconstruct the list data using the flattened values and levels
+                    // Use the actual max definition level from the data
+                    val actualMaxDefLevel = defLevels.maxOrNull() ?: 2
                     val reconstructed = com.molo17.parquetkt.data.NestedDataReconstructor.reconstructLists<Any>(
-                        values = column.definedData.toList(),
-                        definitionLevels = column.definitionLevels?.toList() ?: emptyList(),
-                        repetitionLevels = column.repetitionLevels.toList(),
-                        maxDefinitionLevel = column.definitionLevels?.maxOrNull() ?: 2,
+                        values = convertedValues,
+                        definitionLevels = defLevels,
+                        repetitionLevels = repLevels,
+                        maxDefinitionLevel = actualMaxDefLevel,
                         nullable = param.type.isMarkedNullable
                     )
+                    
                     listColumns[param.name!!] = reconstructed
                 }
             }
         }
         
+        // Build a map of column name to column for non-list columns
+        val nonListColumns = mutableMapOf<String, DataColumn<*>>()
+        rowGroup.columns.forEach { column ->
+            if (column.repetitionLevels == null) {
+                nonListColumns[column.field.name] = column
+            }
+        }
+        
         return (0 until rowGroup.rowCount).map { rowIndex ->
-            val row = rowGroup.getRow(rowIndex)
-            
             val args = parameters.map { param ->
                 // Check if this is a list column that was reconstructed
                 if (listColumns.containsKey(param.name)) {
@@ -195,7 +266,9 @@ class ParquetDeserializer<T : Any>(
                         null
                     }
                 } else {
-                    val value = row[param.name]
+                    // Get value from non-list column directly
+                    val column = nonListColumns[param.name]
+                    val value = column?.get(rowIndex)
                     when {
                         value == null -> if (param.type.isMarkedNullable) null 
                             else throw IllegalStateException("Non-nullable parameter ${param.name} is null")
