@@ -22,10 +22,12 @@ import java.io.EOFException
 import java.io.InputStream
 import com.molo17.parquetkt.data.DataColumn
 import com.molo17.parquetkt.data.RowGroup
+import com.molo17.parquetkt.encoding.DictionaryDecoder
 import com.molo17.parquetkt.encoding.PlainDecoder
 import com.molo17.parquetkt.encoding.RleDecoder
 import com.molo17.parquetkt.format.BinaryReader
 import com.molo17.parquetkt.format.ParquetConstants
+import com.molo17.parquetkt.schema.Encoding
 import com.molo17.parquetkt.schema.ParquetSchema
 import com.molo17.parquetkt.schema.SchemaConverter
 import com.molo17.parquetkt.thrift.*
@@ -177,6 +179,26 @@ class ParquetReader(
     private fun readColumnChunk(columnChunk: ColumnChunk, field: com.molo17.parquetkt.schema.DataField): DataColumn<*> {
         val metadata = columnChunk.metaData
         
+        // Check if dictionary encoding is used
+        val hasDictionary = metadata.dictionaryPageOffset != null
+        var dictionaryData: ByteArray? = null
+        
+        if (hasDictionary) {
+            // Read dictionary page first
+            file.seek(metadata.dictionaryPageOffset!!)
+            val dictPageHeader = deserializePageHeaderFromStream(file)
+            val dictCompressedData = ByteArray(dictPageHeader.compressedPageSize)
+            file.readFully(dictCompressedData)
+            
+            // Dictionary pages are typically uncompressed, but check if compression was used
+            dictionaryData = if (dictPageHeader.compressedPageSize == dictPageHeader.uncompressedPageSize) {
+                dictCompressedData
+            } else {
+                val compressor = CompressionCodecFactory.getCompressor(metadata.codec)
+                compressor.decompress(dictCompressedData, dictPageHeader.uncompressedPageSize)
+            }
+        }
+        
         // Seek to data page
         file.seek(metadata.dataPageOffset)
         
@@ -255,8 +277,18 @@ class ParquetReader(
         
         // Decode values from remaining data (only non-null values are encoded)
         val valueData = uncompressedData.copyOfRange(position, uncompressedData.size)
-        val decoder = PlainDecoder(field.dataType)
-        val values = decoder.decode(valueData, nonNullCount)
+        
+        // Check if data is dictionary-encoded
+        val encoding = pageHeader.dataPageHeader?.encoding ?: Encoding.PLAIN
+        val values = if (encoding == Encoding.RLE_DICTIONARY && dictionaryData != null) {
+            // Dictionary-encoded data
+            val dictDecoder = DictionaryDecoder(field.dataType, dictionaryData)
+            dictDecoder.decode(valueData, nonNullCount)
+        } else {
+            // Plain-encoded data
+            val decoder = PlainDecoder(field.dataType)
+            decoder.decode(valueData, nonNullCount)
+        }
         
         // Reconstruct with nulls if needed
         // For list columns (with repetition levels), keep flattened values as-is

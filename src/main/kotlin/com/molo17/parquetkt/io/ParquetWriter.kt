@@ -159,9 +159,11 @@ class ParquetWriter(
         var currentOffset = startOffset
         
         // Try dictionary encoding for string/byte array columns if enabled
+        // Disable for nested/list columns (with repetition levels) for now
         val useDictionary = enableDictionary && 
                            DictionaryEncoder.canUseDictionary(field.dataType) &&
-                           column.definedData.isNotEmpty()
+                           column.definedData.isNotEmpty() &&
+                           column.repetitionLevels == null
         
         val (encodedData, encoding, dictionaryPageData) = if (useDictionary) {
             tryDictionaryEncoding(column.definedData as Array<Any>, field.dataType)
@@ -296,6 +298,29 @@ class ParquetWriter(
         )
         
         return columnChunk to totalSize
+    }
+    
+    private data class DictionaryPageData(
+        val data: ByteArray,
+        val numValues: Int
+    )
+    
+    private fun tryDictionaryEncoding(
+        values: Array<Any>,
+        dataType: ParquetType
+    ): Triple<ByteArray, Encoding, DictionaryPageData?> {
+        val dictEncoder = DictionaryEncoder(dataType)
+        dictEncoder.addAll(values)
+        
+        return if (dictEncoder.shouldUseDictionary()) {
+            val dictionaryData = dictEncoder.encodeDictionary()
+            val indicesData = dictEncoder.encodeIndices()
+            val dictionaryPageData = DictionaryPageData(dictionaryData, dictEncoder.getDictionarySize())
+            Triple(indicesData, Encoding.RLE_DICTIONARY, dictionaryPageData)
+        } else {
+            val plainEncoder = PlainEncoder(dataType)
+            Triple(plainEncoder.encode(values), Encoding.PLAIN, null)
+        }
     }
     
     private fun createFileMetadata(rowGroups: List<com.molo17.parquetkt.thrift.RowGroup>): FileMetaData {

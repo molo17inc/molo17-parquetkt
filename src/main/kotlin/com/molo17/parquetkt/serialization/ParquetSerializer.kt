@@ -38,6 +38,28 @@ class ParquetSerializer<T : Any>(
 ) {
     private val properties: List<KProperty1<T, *>> = clazz.memberProperties.toList()
     
+    private val propertyCache: Map<String, KProperty1<T, *>> = properties.associateBy { it.name }.also {
+        it.values.forEach { prop -> prop.isAccessible = true }
+    }
+    
+    private val propertyTypeCache: Map<KProperty1<T, *>, PropertyTypeInfo> = properties.associateWith { prop ->
+        val returnType = prop.returnType
+        val classifier = returnType.classifier
+        PropertyTypeInfo(
+            isList = classifier == List::class,
+            isMap = classifier == Map::class,
+            isStruct = (classifier as? KClass<*>)?.isData == true,
+            isNullable = returnType.isMarkedNullable
+        )
+    }
+    
+    private data class PropertyTypeInfo(
+        val isList: Boolean,
+        val isMap: Boolean,
+        val isStruct: Boolean,
+        val isNullable: Boolean
+    )
+    
     fun serialize(data: List<T>, schema: ParquetSchema): RowGroup {
         val columns = if (schema.hasNestedStructure && schema.nestedFields != null) {
             // Handle nested structures - flatten to leaf columns
@@ -65,8 +87,8 @@ class ParquetSerializer<T : Any>(
                     when (field.logicalType) {
                         LogicalType.LIST -> {
                             // Handle list - find the corresponding property and serialize
-                            val property = properties.find { it.name == field.name }
-                            if (property != null && isListProperty(property)) {
+                            val property = propertyCache[field.name]
+                            if (property != null && propertyTypeCache[property]?.isList == true) {
                                 // Get the leaf field for the list
                                 val leafFields = field.getLeafFields()
                                 if (leafFields.isNotEmpty()) {
@@ -91,23 +113,23 @@ class ParquetSerializer<T : Any>(
     }
     
     private fun serializeColumn(data: List<T>, field: DataField): DataColumn<*> {
-        val property = properties.find { it.name == field.name }
+        val property = propertyCache[field.name]
             ?: throw IllegalArgumentException("Property ${field.name} not found in class ${clazz.simpleName}")
         
-        property.isAccessible = true
+        val typeInfo = propertyTypeCache[property]!!
         
         // Check if property is a List type
-        if (isListProperty(property)) {
+        if (typeInfo.isList) {
             return serializeListColumn(data, field, property)
         }
         
         // Check if property is a Map type
-        if (isMapProperty(property)) {
+        if (typeInfo.isMap) {
             return serializeMapColumn(data, field, property)
         }
         
         // Check if property is a nested data class (Struct)
-        if (isStructProperty(property)) {
+        if (typeInfo.isStruct) {
             throw UnsupportedOperationException(
                 "Struct properties should be handled via serializeNestedFields, not serializeColumn"
             )
@@ -121,21 +143,15 @@ class ParquetSerializer<T : Any>(
     }
     
     private fun isListProperty(property: KProperty1<T, *>): Boolean {
-        val returnType = property.returnType
-        val classifier = returnType.classifier
-        return classifier == List::class
+        return propertyTypeCache[property]?.isList ?: false
     }
     
     private fun isMapProperty(property: KProperty1<T, *>): Boolean {
-        val returnType = property.returnType
-        val classifier = returnType.classifier
-        return classifier == Map::class
+        return propertyTypeCache[property]?.isMap ?: false
     }
     
     private fun isStructProperty(property: KProperty1<T, *>): Boolean {
-        val returnType = property.returnType
-        val classifier = returnType.classifier as? KClass<*>
-        return classifier != null && classifier.isData
+        return propertyTypeCache[property]?.isStruct ?: false
     }
     
     private fun serializeListColumn(
@@ -183,10 +199,8 @@ class ParquetSerializer<T : Any>(
     
     private fun serializeStructField(data: List<T>, structField: NestedField.Group): List<DataColumn<*>> {
         // Find the property for this struct
-        val property = properties.find { it.name == structField.name }
+        val property = propertyCache[structField.name]
             ?: throw IllegalArgumentException("Property ${structField.name} not found in class ${clazz.simpleName}")
-        
-        property.isAccessible = true
         
         // Get all leaf fields from the struct
         val leafFields = structField.getLeafFields()
@@ -221,10 +235,8 @@ class ParquetSerializer<T : Any>(
     
     private fun serializeMapField(data: List<T>, mapField: NestedField.Group): List<DataColumn<*>> {
         // Find the property for this map
-        val property = properties.find { it.name == mapField.name }
+        val property = propertyCache[mapField.name]
             ?: throw IllegalArgumentException("Property ${mapField.name} not found in class ${clazz.simpleName}")
-        
-        property.isAccessible = true
         
         // Get the key-value struct from the map field
         val keyValueStruct = mapField.children.first() as NestedField.Group
