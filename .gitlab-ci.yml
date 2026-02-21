@@ -18,6 +18,12 @@ stages:
 before_script:
   - export GRADLE_USER_HOME=`pwd`/.gradle
   - chmod +x ./gradlew
+  - |
+    if [ -n "$CI_COMMIT_TAG" ]; then
+      TAG_VERSION="${CI_COMMIT_TAG#v}"
+      export RELEASE_VERSION="$TAG_VERSION"
+      echo "Using release version $RELEASE_VERSION derived from tag $CI_COMMIT_TAG"
+    fi
 
 build:
   stage: build
@@ -25,7 +31,7 @@ build:
     - hq-linux-docker
   only:
     - tags
-    - main  # Remove this line if you want tags ONLY
+    - main # Remove this line if you want tags ONLY
   script:
     - ./gradlew clean build -x test
   artifacts:
@@ -39,7 +45,7 @@ test:
     - hq-linux-docker
   only:
     - tags
-    - main  # Remove this line if you want tags ONLY
+    - main # Remove this line if you want tags ONLY
   script:
     - ./gradlew test
   artifacts:
@@ -63,36 +69,41 @@ publish:maven-central:
   script:
     # Install required tools
     - apt-get update && apt-get install -y gnupg zip curl
-    
+
     # Import GPG key for signing
     - echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
-    
+
+    # Ensure release version (derived from tag) is available
+    - |
+      if [ -z "$RELEASE_VERSION" ]; then
+        echo "RELEASE_VERSION is not set. Ensure this job runs from a version tag (e.g., v1.0.1)." >&2
+        exit 1
+      fi
+      export VERSION="$RELEASE_VERSION"
+
     # Build and sign artifacts
-    - ./gradlew publishToMavenLocal
+    - RELEASE_VERSION="$VERSION" ./gradlew publishToMavenLocal
       -Psigning.gnupg.keyName="$GPG_KEY_ID"
       -Psigning.gnupg.passphrase="$GPG_PASSPHRASE"
-    
-    # Get version from build.gradle.kts
-    - export VERSION=$(grep "^version = " build.gradle.kts | sed 's/version = "\(.*\)"/\1/')
-    
+
     # Create bundle directory structure
     - mkdir -p /tmp/bundle/com/molo17/parquetkt/$VERSION
-    
+
     # Copy artifacts to bundle
     - cp ~/.m2/repository/com/molo17/parquetkt/$VERSION/parquetkt-$VERSION*.jar /tmp/bundle/com/molo17/parquetkt/$VERSION/
     - cp ~/.m2/repository/com/molo17/parquetkt/$VERSION/parquetkt-$VERSION*.jar.asc /tmp/bundle/com/molo17/parquetkt/$VERSION/
     - cp ~/.m2/repository/com/molo17/parquetkt/$VERSION/parquetkt-$VERSION.pom* /tmp/bundle/com/molo17/parquetkt/$VERSION/
-    
+
     # Generate checksums
     - cd /tmp/bundle/com/molo17/parquetkt/$VERSION
     - for file in parquetkt-$VERSION*.jar parquetkt-$VERSION.pom; do md5sum "$file" | awk '{print $1}' > "${file}.md5"; sha1sum "$file" | awk '{print $1}' > "${file}.sha1"; done
-    
+
     # Create bundle ZIP
     - cd /tmp/bundle && zip -r /tmp/parquetkt-bundle.zip com/
-    
+
     # Generate auth token
     - export AUTH_TOKEN=$(printf "${SONATYPE_USERNAME}:${SONATYPE_PASSWORD}" | base64)
-    
+
     # Upload to Central Portal with automatic publishing
     - |
       curl --fail --request POST \
@@ -108,4 +119,3 @@ publish:maven-central:
   environment:
     name: maven-central
     url: https://central.sonatype.com/artifact/com.molo17/parquetkt
-

@@ -7,7 +7,9 @@ plugins {
 }
 
 group = "com.molo17"
-version = "1.0.0"
+val releaseVersion = providers.environmentVariable("RELEASE_VERSION")
+val defaultVersion = providers.gradleProperty("projectVersion").orElse("1.0.1-SNAPSHOT")
+version = releaseVersion.orElse(defaultVersion).get()
 
 repositories {
     mavenCentral()
