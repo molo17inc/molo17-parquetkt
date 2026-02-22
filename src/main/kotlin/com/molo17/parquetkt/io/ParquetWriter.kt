@@ -41,18 +41,18 @@ class ParquetWriter(
     private val outputPath: String,
     private val schema: ParquetSchema,
     private val compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
-    private val rowGroupSize: Int = DEFAULT_ROW_GROUP_SIZE,
-    private val pageSize: Int = DEFAULT_PAGE_SIZE,
     private val enableDictionary: Boolean = true,  // Enabled by default for better compression on repetitive data
     private val bufferSize: Int = DEFAULT_BUFFER_SIZE,
     private val enableParallelCompression: Boolean = true,
     private val maxRowGroupsInMemory: Int = DEFAULT_MAX_ROW_GROUPS_IN_MEMORY,  // Auto-flush after this many row groups
+    private val maxRowsInMemory: Int = DEFAULT_MAX_ROWS_IN_MEMORY,  // Auto-flush if row count threshold is reached
     private val arrayPool: ArrayPool? = null  // Optional array pool to reduce GC pressure
 ) : Closeable {
     
     private val outputStream: OutputStream = BufferedOutputStream(FileOutputStream(outputPath), bufferSize)
     private var isClosed = false
     private val rowGroups = mutableListOf<RowGroup>()
+    private var bufferedRowCount = 0
     private var isHeaderWritten = false
     private var currentFileOffset = ParquetConstants.MAGIC_LENGTH.toLong()
     private val writtenRowGroupMetadata = mutableListOf<com.molo17.parquetkt.thrift.RowGroup>()
@@ -66,9 +66,10 @@ class ParquetWriter(
             "RowGroup schema must match writer schema"
         }
         rowGroups.add(rowGroup)
+        bufferedRowCount += rowGroup.rowCount
         
         // Auto-flush if we have too many row groups in memory
-        if (rowGroups.size >= maxRowGroupsInMemory) {
+        if (rowGroups.size >= maxRowGroupsInMemory || bufferedRowCount >= maxRowsInMemory) {
             flushRowGroups()
         }
     }
@@ -106,6 +107,7 @@ class ParquetWriter(
         
         // Clear row groups from memory
         rowGroups.clear()
+        bufferedRowCount = 0
     }
     
     fun <T> writeColumn(field: String, data: List<T?>) {
@@ -622,6 +624,7 @@ class ParquetWriter(
         const val DEFAULT_PAGE_SIZE = 256 * 1024 // 256 KB - reduced from 1 MB for better memory efficiency
         const val DEFAULT_BUFFER_SIZE = 64 * 1024 // 64 KB buffer for I/O operations
         const val DEFAULT_MAX_ROW_GROUPS_IN_MEMORY = 10 // Auto-flush after 10 row groups (~80 MB with default size)
+        const val DEFAULT_MAX_ROWS_IN_MEMORY = 200_000 // ~25MB default dataset assuming ~8 bytes per cell
         
         fun create(
             file: File,

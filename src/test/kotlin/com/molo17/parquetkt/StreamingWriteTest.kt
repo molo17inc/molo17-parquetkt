@@ -119,13 +119,13 @@ class StreamingWriteTest {
             DataField.string("description")
         )
         
-        // Use smaller row group and page sizes
+        // Use smaller in-memory buffers to mimic constrained environments
         val writer = ParquetWriter(
             outputPath = file.absolutePath,
             schema = schema,
-            rowGroupSize = 1 * 1024 * 1024,  // 1 MB row groups
-            pageSize = 64 * 1024,             // 64 KB pages
-            maxRowGroupsInMemory = 5
+            bufferSize = 32 * 1024,
+            maxRowGroupsInMemory = 5,
+            maxRowsInMemory = 2_000
         )
         
         // Write data
