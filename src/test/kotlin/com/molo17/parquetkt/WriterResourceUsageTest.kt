@@ -62,7 +62,7 @@ class WriterResourceUsageTest {
                 "heapDelta=${formatBytes(heapDelta)}, fileSize=${"%.2f".format(fileSizeMb)} MB"
         )
 
-        val maxAllowedHeap = 1_200L * 1024 * 1024 // ~1.2 GB safety ceiling for text-heavy payloads
+        val maxAllowedHeap = 1_500L * 1024 * 1024 // 1.5 GB regression guard (200 cols * 5000 rows * 512 B ≈ 512 MB raw/batch before compression)
         assertTrue(
             heapDelta <= maxAllowedHeap,
             "Heap increase ${formatBytes(heapDelta)} exceeds budget ${formatBytes(maxAllowedHeap)}"

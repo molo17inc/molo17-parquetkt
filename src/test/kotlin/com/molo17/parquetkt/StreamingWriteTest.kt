@@ -151,4 +151,55 @@ class StreamingWriteTest {
         println("   File size: ${file.length()} bytes")
         println("   Rows written: $rowCount")
     }
+
+    @Test
+    fun `memory pressure flush triggers before static thresholds are reached`() {
+        val file = File(tempDir, "memory_pressure_test.parquet")
+
+        val schema = ParquetSchema.create(
+            DataField.int64("id"),
+            DataField.string("payload")
+        )
+
+        // Set static thresholds very high so only memory pressure can trigger a flush.
+        // Set minFreeMemoryBytes to just below maxMemory so the check always fires after
+        // the first row group is buffered.
+        val rt = Runtime.getRuntime()
+        val almostAllMemory = rt.maxMemory() - 1L  // virtually impossible to have this much free
+
+        val writer = ParquetWriter(
+            outputPath = file.absolutePath,
+            schema = schema,
+            maxRowGroupsInMemory = 1_000,
+            maxRowsInMemory = 10_000_000,
+            minFreeMemoryBytes = almostAllMemory
+        )
+
+        val rowCount = 100
+        repeat(5) { groupIdx ->
+            val ids = Array<Long?>(rowCount) { (groupIdx * rowCount + it).toLong() }
+            val payloads = Array<String?>(rowCount) { "row-$it" }
+            writer.write(
+                com.molo17.parquetkt.data.RowGroup(
+                    schema,
+                    listOf(
+                        DataColumn(schema.fields[0], ids),
+                        DataColumn(schema.fields[1], payloads)
+                    )
+                )
+            )
+        }
+        writer.close()
+
+        // File must be non-empty and readable
+        assert(file.exists() && file.length() > 0) { "Parquet file should be non-empty" }
+
+        val reader = ParquetReader(file.absolutePath)
+        var totalRows = 0
+        repeat(reader.rowGroupCount) { totalRows += reader.readRowGroup(it).rowCount }
+        reader.close()
+
+        assertEquals(500, totalRows, "All 500 rows must be present after memory-pressure flushes")
+        println("✅ Memory-pressure flush test passed (totalRows=$totalRows, fileSize=${file.length()} bytes)")
+    }
 }

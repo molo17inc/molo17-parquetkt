@@ -34,7 +34,7 @@ dependencies {
 
 ```groovy
 dependencies {
-    implementation 'com.molo17.parquetkt:molo17-parquetkt:1.0.0'
+    implementation 'com.molo17:parquetkt:1.0.0'
 }
 ```
 
@@ -42,8 +42,8 @@ dependencies {
 
 ```xml
 <dependency>
-    <groupId>com.molo17.parquetkt</groupId>
-    <artifactId>molo17-parquetkt</artifactId>
+    <groupId>com.molo17</groupId>
+    <artifactId>parquetkt</artifactId>
     <version>1.0.0</version>
 </dependency>
 ```

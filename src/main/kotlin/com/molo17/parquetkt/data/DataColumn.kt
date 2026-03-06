@@ -25,6 +25,8 @@ class DataColumn<T>(
     val definitionLevels: IntArray? = null,
     val repetitionLevels: IntArray? = null
 ) {
+    @Suppress("UNCHECKED_CAST")
+    internal val rawData: Array<Any?> get() = data as Array<Any?>
     // Cache the defined data to avoid recomputing on every access
     private val _definedData: Array<Any> by lazy {
         @Suppress("UNCHECKED_CAST")

@@ -34,6 +34,23 @@ object LevelEncoder {
      * Encode levels as varints (simple implementation).
      * Format: [count as varint] [level1 as varint] [level2 as varint] ...
      */
+    fun encodeLevels(levels: IntArray): ByteArray {
+        if (levels.isEmpty()) {
+            return ByteArray(0)
+        }
+
+        val output = ByteArrayOutputStream()
+        val writer = BinaryWriter(output)
+
+        writer.writeVarInt(levels.size)
+        for (level in levels) {
+            writer.writeVarInt(level)
+        }
+
+        writer.flush()
+        return output.toByteArray()
+    }
+
     fun encodeLevels(levels: List<Int>): ByteArray {
         if (levels.isEmpty()) {
             return ByteArray(0)
