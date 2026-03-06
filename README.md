@@ -26,7 +26,7 @@ A fully managed, pure Kotlin library for reading and writing Apache Parquet file
 
 ```kotlin
 dependencies {
-    implementation("com.molo17.parquetkt:molo17-parquetkt:1.0.0")
+    implementation("com.molo17:parquetkt:1.0.0")
 }
 ```
 
