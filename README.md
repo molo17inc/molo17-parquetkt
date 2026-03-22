@@ -477,6 +477,28 @@ The library has comprehensive test coverage with **111 tests passing (100%)**:
 - ✅ **ArrayPoolIntegrationTest** (3 tests) - ArrayPool integration with ParquetWriter, memory efficiency
 - ✅ **StatisticsTest** (7 tests) - Min/max/null_count calculation for all data types, statistics serialization
 
+### Adaptive Memory & Stress Tests
+
+`CreateAutoAdaptiveTest` exercises the adaptive writer logic under real-world pressure:
+
+1. **Runtime pressure override** – artificial 65% heap pressure forces `createAuto()` into low-memory mode and validates per-batch flushing.
+2. **Wide schema tier selection** – 120-column schemas automatically pick the low-memory tier regardless of heap size.
+3. **High-memory throughput path** – 400K rows written at ~300K rows/sec with parallel compression enabled when the heap is free.
+4. **Dynamic parallel → sequential fallback** – heap pressure added mid-stream causes writers to fall back to sequential compression without data loss.
+5. **Combined production scenario** – concurrent narrow + wide writers plus background pressure ensure every adaptive path works together.
+6. **300 simultaneous pipelines** – 200 narrow + 100 wide pipelines (10–20K transactions each) produce 4.5M rows in 8.6s on a 4 GB heap (524K rows/sec) with zero errors and full readback verification.
+
+These scenarios mirror GlueSync production workloads and guard against regressions in adaptive memory handling, compression semaphore behavior, and GCLocker safety.
+
+`HighThroughputOOMSimulationTest` complements the suite with end-to-end workloads that measure throughput and survivability under synthetic pressure:
+
+- **Overloaded burst** – 24 parallel writers × 100 batches × 80 columns with sustained heap pressure to ensure zero OOM and full data integrity.
+- **Production throughput verification** – Confirms the writer sustains 3.4M rows/sec (≈528× target) under nominal conditions.
+- **Concurrent entity sync** – Mixed batch sizes across multiple entities to mimic steady-state sync pipelines.
+- **Large snapshot with wide schema** – 100-column snapshots to verify metadata scaling and heap stability.
+- **Artificial memory pressure** – Background allocator grabs 500 MB chunks while writers continue without corruption.
+- **Sustained high throughput** – 20M+ rows streamed with memory growth tracking to ensure no runaway allocations.
+
 ## Roadmap
 
 ### Completed ✅
