@@ -624,7 +624,13 @@ class ParquetWriter(
         const val DEFAULT_BUFFER_SIZE = 64 * 1024 // 64 KB buffer for I/O operations
         const val DEFAULT_MAX_ROW_GROUPS_IN_MEMORY = 10 // Auto-flush after 10 row groups (~80 MB with default size)
         const val DEFAULT_MAX_ROWS_IN_MEMORY = 200_000 // ~25MB default dataset assuming ~8 bytes per cell
+        
+        // Low memory mode constants - more aggressive flushing for high-throughput scenarios
+        const val LOW_MEMORY_MAX_ROW_GROUPS = 1 // Flush immediately after each row group
+        const val LOW_MEMORY_MAX_ROWS = 10_000 // Flush after 10K rows
+        
         fun defaultMinFreeMemoryBytes(): Long = Runtime.getRuntime().maxMemory() / 5 // 20% of -Xmx, adapts to any heap size
+        fun lowMemoryMinFreeBytes(): Long = Runtime.getRuntime().maxMemory() / 3 // 33% of -Xmx for aggressive flushing
         
         fun create(
             file: File,
@@ -653,5 +659,126 @@ class ParquetWriter(
             enableDictionary = enableDictionary,
             minFreeMemoryBytes = minFreeMemoryBytes
         )
+        
+        /**
+         * Create a ParquetWriter optimized for low-memory, high-throughput scenarios.
+         * This mode:
+         * - Flushes row groups immediately (maxRowGroupsInMemory = 1)
+         * - Uses smaller row batches (maxRowsInMemory = 10,000)
+         * - Triggers memory pressure flush at 33% free heap instead of 20%
+         * - Disables parallel compression to reduce peak memory
+         * - Uses shared ArrayPool to reduce GC pressure
+         */
+        fun createLowMemory(
+            file: File,
+            schema: ParquetSchema,
+            compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
+            enableDictionary: Boolean = false
+        ): ParquetWriter = ParquetWriter(
+            outputPath = file.absolutePath,
+            schema = schema,
+            compressionCodec = compressionCodec,
+            enableDictionary = enableDictionary,
+            enableParallelCompression = false, // Reduce peak memory by serializing compression
+            maxRowGroupsInMemory = LOW_MEMORY_MAX_ROW_GROUPS,
+            maxRowsInMemory = LOW_MEMORY_MAX_ROWS,
+            minFreeMemoryBytes = lowMemoryMinFreeBytes(),
+            arrayPool = ArrayPool.shared
+        )
+        
+        /**
+         * Create a ParquetWriter optimized for low-memory, high-throughput scenarios.
+         */
+        fun createLowMemory(
+            path: String,
+            schema: ParquetSchema,
+            compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
+            enableDictionary: Boolean = false
+        ): ParquetWriter = ParquetWriter(
+            outputPath = path,
+            schema = schema,
+            compressionCodec = compressionCodec,
+            enableDictionary = enableDictionary,
+            enableParallelCompression = false,
+            maxRowGroupsInMemory = LOW_MEMORY_MAX_ROW_GROUPS,
+            maxRowsInMemory = LOW_MEMORY_MAX_ROWS,
+            minFreeMemoryBytes = lowMemoryMinFreeBytes(),
+            arrayPool = ArrayPool.shared
+        )
+        
+        /**
+         * Create a ParquetWriter with automatic memory-adaptive settings.
+         * This constructor analyzes the current JVM heap configuration and schema complexity
+         * to automatically select optimal settings:
+         * 
+         * - For heaps < 512MB or schemas with many columns: Uses aggressive low-memory settings
+         * - For heaps 512MB-2GB: Uses balanced settings with moderate buffering
+         * - For heaps > 2GB: Uses standard settings with larger buffers for throughput
+         * 
+         * This is the recommended constructor for production use where memory constraints vary.
+         */
+        fun createAuto(
+            file: File,
+            schema: ParquetSchema,
+            compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
+            enableDictionary: Boolean = false
+        ): ParquetWriter {
+            val rt = Runtime.getRuntime()
+            val maxHeapMb = rt.maxMemory() / (1024 * 1024)
+            val columnCount = schema.fieldCount
+            
+            // Estimate memory per row based on column count (rough heuristic)
+            // More columns = more memory per row group
+            val estimatedBytesPerRow = columnCount * 50L // ~50 bytes per column average
+            
+            return when {
+                // Low memory or many columns: aggressive flushing
+                maxHeapMb < 512 || columnCount > 100 -> ParquetWriter(
+                    outputPath = file.absolutePath,
+                    schema = schema,
+                    compressionCodec = compressionCodec,
+                    enableDictionary = enableDictionary,
+                    enableParallelCompression = false,
+                    maxRowGroupsInMemory = 1,
+                    maxRowsInMemory = (50 * 1024 * 1024 / estimatedBytesPerRow).toInt().coerceIn(1_000, 50_000),
+                    minFreeMemoryBytes = rt.maxMemory() / 3, // 33% free
+                    arrayPool = ArrayPool.shared
+                )
+                // Medium memory: balanced settings
+                maxHeapMb < 2048 -> ParquetWriter(
+                    outputPath = file.absolutePath,
+                    schema = schema,
+                    compressionCodec = compressionCodec,
+                    enableDictionary = enableDictionary,
+                    enableParallelCompression = columnCount <= 50, // Only parallelize for simpler schemas
+                    maxRowGroupsInMemory = 3,
+                    maxRowsInMemory = (100 * 1024 * 1024 / estimatedBytesPerRow).toInt().coerceIn(10_000, 100_000),
+                    minFreeMemoryBytes = rt.maxMemory() / 4, // 25% free
+                    arrayPool = ArrayPool.shared
+                )
+                // High memory: optimize for throughput
+                else -> ParquetWriter(
+                    outputPath = file.absolutePath,
+                    schema = schema,
+                    compressionCodec = compressionCodec,
+                    enableDictionary = enableDictionary,
+                    enableParallelCompression = true,
+                    maxRowGroupsInMemory = DEFAULT_MAX_ROW_GROUPS_IN_MEMORY,
+                    maxRowsInMemory = DEFAULT_MAX_ROWS_IN_MEMORY,
+                    minFreeMemoryBytes = defaultMinFreeMemoryBytes(),
+                    arrayPool = ArrayPool.shared
+                )
+            }
+        }
+        
+        /**
+         * Create a ParquetWriter with automatic memory-adaptive settings.
+         */
+        fun createAuto(
+            path: String,
+            schema: ParquetSchema,
+            compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
+            enableDictionary: Boolean = false
+        ): ParquetWriter = createAuto(File(path), schema, compressionCodec, enableDictionary)
     }
 }

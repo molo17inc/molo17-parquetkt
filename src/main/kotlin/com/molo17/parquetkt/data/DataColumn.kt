@@ -27,20 +27,67 @@ class DataColumn<T>(
 ) {
     @Suppress("UNCHECKED_CAST")
     internal val rawData: Array<Any?> get() = data as Array<Any?>
-    // Cache the defined data to avoid recomputing on every access
+    
+    // Count of non-null values - computed once lazily
+    private val _definedCount: Int by lazy {
+        var count = 0
+        for (item in data) {
+            if (item != null) count++
+        }
+        count
+    }
+    
+    val definedCount: Int get() = _definedCount
+    
+    // Memory-efficient: only create the array when absolutely needed
+    // For encoding, prefer using forEachDefined() to avoid allocation
     private val _definedData: Array<Any> by lazy {
         @Suppress("UNCHECKED_CAST")
-        val nonNullItems = ArrayList<Any>(data.size)
-        for (item in data) {
-            if (item != null) {
-                nonNullItems.add(item as Any)
+        if (_definedCount == data.size) {
+            // All values are non-null, just cast the existing array
+            data as Array<Any>
+        } else {
+            // Only allocate when we have nulls
+            val result = arrayOfNulls<Any>(_definedCount)
+            var idx = 0
+            for (item in data) {
+                if (item != null) {
+                    result[idx++] = item
+                }
             }
+            result as Array<Any>
         }
-        nonNullItems.toArray(arrayOfNulls<Any>(nonNullItems.size)) as Array<Any>
     }
     
     val definedData: Array<Any>
         get() = _definedData
+    
+    /**
+     * Memory-efficient iteration over non-null values without creating intermediate arrays.
+     * Use this instead of definedData when possible to avoid allocation.
+     */
+    inline fun forEachDefined(action: (Any) -> Unit) {
+        for (item in data) {
+            if (item != null) {
+                @Suppress("UNCHECKED_CAST")
+                action(item as Any)
+            }
+        }
+    }
+    
+    /**
+     * Memory-efficient indexed iteration over non-null values.
+     * The index is the position in the defined values (0, 1, 2...), not the original array index.
+     */
+    inline fun forEachDefinedIndexed(action: (index: Int, value: Any) -> Unit) {
+        var idx = 0
+        for (item in data) {
+            if (item != null) {
+                @Suppress("UNCHECKED_CAST")
+                action(idx++, item as Any)
+            }
+        }
+    }
     
     val size: Int
         get() = data.size
