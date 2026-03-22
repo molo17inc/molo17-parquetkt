@@ -1,121 +1,267 @@
-image: gradle:8.5-jdk21
+###                                                  ###
+# Automatically generated file, do not modify manually #
+###                                                  ###
 
-variables:
-  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
-  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
-
-cache:
-  key: "$CI_COMMIT_REF_SLUG"
-  paths:
-    - .gradle/wrapper
-    - .gradle/caches
+image: gradle:8.8-jdk21
 
 stages:
-  - build
   - test
-  - publish
+  - build
+  - deploy
+  - notify
 
-before_script:
-  - export GRADLE_USER_HOME=`pwd`/.gradle
-  - chmod +x ./gradlew
-  - |
-    if [ -n "$CI_COMMIT_TAG" ]; then
-      TAG_VERSION="${CI_COMMIT_TAG#v}"
-      export RELEASE_VERSION="$TAG_VERSION"
-      echo "Using release version $RELEASE_VERSION derived from tag $CI_COMMIT_TAG"
-    fi
+variables:
+  DOCKER_TLS_CERTDIR: ""
+  GIT_DEPTH: "1"
+  GIT_STRATEGY: "fetch"
 
-build:
-  stage: build
-  tags:
-    - hq-linux-docker
-  only:
-    - tags
-    - main # Remove this line if you want tags ONLY
-  script:
-    - ./gradlew clean build -x test
-  artifacts:
-    paths:
-      - build/libs/
-    expire_in: 1 week
+workflow:
+  rules:
+    - if: '$PIPELINE_TYPE == "build_and_deploy"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_TAG == null'
+      when: always
+    - when: never
+  name: "$PIPELINE_DESCRIPTION"
 
-test:
+build_test_all:
   stage: test
+  retry: 2
   tags:
     - hq-linux-docker
-  only:
-    - tags
-    - main # Remove this line if you want tags ONLY
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_TAG == null'
   script:
-    - ./gradlew test
-  artifacts:
-    when: always
-    reports:
-      junit: build/test-results/test/TEST-*.xml
-    paths:
-      - build/reports/tests/
-    expire_in: 1 week
+    - export GRADLE_USER_HOME=`pwd`/.gradle
+    - gradle check
+  interruptible: true
 
-# Publish to Maven Central (only on tags)
-publish:maven-central:
-  stage: publish
+build_gluesync:
+  stage: build
+  retry: 2
+  parallel:
+    matrix:
+      - GRADLE_TASK: ':corehub:gsBuild'
+        BUILD_TAG: 'core-hub'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':cassandra:gsBuild'
+        BUILD_TAG: 'cassandra'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':postgresql:gsBuild'
+        BUILD_TAG: 'postgresql-cdc'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':mysql:gsBuild'
+        BUILD_TAG: 'mysql-cdc'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':ibm-iseries:gsBuild'
+        BUILD_TAG: 'ibm-iseries'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':couchbase:gsBuild'
+        BUILD_TAG: 'couchbase'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':mssql:changetracking:gsBuild'
+        BUILD_TAG: 'mssql-ct'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':mssql:cdc:gsBuild'
+        BUILD_TAG: 'mssql-cdc'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':vertica:gsBuild'
+        BUILD_TAG: 'vertica'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':kafka:gsBuild'
+        BUILD_TAG: 'kafka'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':solace:gsBuild'
+        BUILD_TAG: 'solace'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':mongodb:gsBuild'
+        BUILD_TAG: 'mongodb'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':sybase:gsBuild'
+        BUILD_TAG: 'sybase'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':dynamodb:gsBuild'
+        BUILD_TAG: 'dynamodb'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':snowflake:gsBuild'
+        BUILD_TAG: 'snowflake'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':oracle:xstream:gsBuild'
+        BUILD_TAG: 'oracle-xstream'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':oracle:triggers:gsBuild'
+        BUILD_TAG: 'oracle-triggers'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':oracle:triggers-legacy:gsBuild'
+        BUILD_TAG: 'oracle-triggers-legacy'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':oracle:cdc:gsBuild'
+        BUILD_TAG: 'oracle-logminer'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':aerospike:gsBuild'
+        BUILD_TAG: 'aerospike'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':singlestore:gsBuild'
+        BUILD_TAG: 'singlestore'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':awss3:gsBuild'
+        BUILD_TAG: 'awss3'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':cosmosdb:gsBuild'
+        BUILD_TAG: 'cosmosdb'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':informix:gsBuild'
+        BUILD_TAG: 'informix'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':gcpstorage:gsBuild'
+        BUILD_TAG: 'google-cloud-storage'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':ravendb:gsBuild'
+        BUILD_TAG: 'ravendb'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':google-pubsub:gsBuild'
+        BUILD_TAG: 'google-pubsub'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':redis:gsBuild'
+        BUILD_TAG: 'redis'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':cockroachdb:gsBuild'
+        BUILD_TAG: 'cockroachdb'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':mariadb:gsBuild'
+        BUILD_TAG: 'mariadb-cdc'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':google-big-query:gsBuild'
+        BUILD_TAG: 'google-bigquery'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':scylladb:gsBuild'
+        BUILD_TAG: 'scylladb'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':yugabytedb:gsBuild'
+        BUILD_TAG: 'yugabytedb'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':gridgain:gsBuild'
+        BUILD_TAG: 'gridgain'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':db2-luw:triggers:gsBuild'
+        BUILD_TAG: 'db2-luw-triggers'
+        ADDITIONAL_LIBS_PATH: ''
+      - GRADLE_TASK: ':azure-data-lake:gsBuild'
+        BUILD_TAG: 'azure-data-lake'
+        ADDITIONAL_LIBS_PATH: ''
   tags:
     - hq-linux-docker
-  only:
-    - tags
-  dependencies:
-    - build
-    - test
+  rules:
+    - if: '$PIPELINE_TYPE == "build_and_deploy"'
   script:
-    # Install required tools
-    - apt-get update && apt-get install -y gnupg zip curl
-
-    # Import GPG key for signing
-    - echo "$GPG_PRIVATE_KEY" | base64 -d | gpg --batch --import
-
-    # Ensure release version (derived from tag) is available
+    - export GRADLE_USER_HOME=`pwd`/.gradle
+    - gradle $GRADLE_TASK
+    - mkdir libs
+    - mkdir -p additional-libs
     - |
-      if [ -z "$RELEASE_VERSION" ]; then
-        echo "RELEASE_VERSION is not set. Ensure this job runs from a version tag (e.g., v1.0.1)." >&2
-        exit 1
+      if [ "$ADDITIONAL_LIBS_PATH" != "" ] && [ -d "$ADDITIONAL_LIBS_PATH" ]; then
+       echo "Copying additional libraries from $ADDITIONAL_LIBS_PATH..."
+       cp -a $ADDITIONAL_LIBS_PATH/* additional-libs/
+      else
+       echo "No additional libraries to copy for this module."
       fi
-      export VERSION="$RELEASE_VERSION"
-
-    # Build and sign artifacts
-    - RELEASE_VERSION="$VERSION" ./gradlew publishToMavenLocal
-      -Psigning.gnupg.keyName="$GPG_KEY_ID"
-      -Psigning.gnupg.passphrase="$GPG_PASSPHRASE"
-
-    # Create bundle directory structure
-    - mkdir -p /tmp/bundle/com/molo17/parquetkt/$VERSION
-
-    # Copy artifacts to bundle
-    - cp ~/.m2/repository/com/molo17/parquetkt/$VERSION/parquetkt-$VERSION*.jar /tmp/bundle/com/molo17/parquetkt/$VERSION/
-    - cp ~/.m2/repository/com/molo17/parquetkt/$VERSION/parquetkt-$VERSION*.jar.asc /tmp/bundle/com/molo17/parquetkt/$VERSION/
-    - cp ~/.m2/repository/com/molo17/parquetkt/$VERSION/parquetkt-$VERSION.pom* /tmp/bundle/com/molo17/parquetkt/$VERSION/
-
-    # Generate checksums
-    - cd /tmp/bundle/com/molo17/parquetkt/$VERSION
-    - for file in parquetkt-$VERSION*.jar parquetkt-$VERSION.pom; do md5sum "$file" | awk '{print $1}' > "${file}.md5"; sha1sum "$file" | awk '{print $1}' > "${file}.sha1"; done
-
-    # Create bundle ZIP
-    - cd /tmp/bundle && zip -r /tmp/parquetkt-bundle.zip com/
-
-    # Generate auth token
-    - export AUTH_TOKEN=$(printf "${SONATYPE_USERNAME}:${SONATYPE_PASSWORD}" | base64)
-
-    # Upload to Central Portal with automatic publishing
-    - |
-      curl --fail --request POST \
-        --header "Authorization: Bearer ${AUTH_TOKEN}" \
-        --form bundle=@/tmp/parquetkt-bundle.zip \
-        --form publishingType=AUTOMATIC \
-        https://central.sonatype.com/api/v1/publisher/upload
+    - find . -type d -path "*/build/libs/$BUILD_TAG" -exec cp -r '{}' libs/ \;
   artifacts:
     paths:
-      - build/libs/*.jar
-      - build/publications/
-    expire_in: 1 month
-  environment:
-    name: maven-central
-    url: https://central.sonatype.com/artifact/com.molo17/parquetkt
+      - libs/*
+      - additional-libs/*
+    expire_in: 1 day
+  interruptible: true
+
+deploy_gluesync_linux:
+  stage: deploy
+  retry: 2
+  tags:
+    - hq-linux-docker
+  image: docker:27.3.1
+  services:
+    - name: docker:dind
+      variables:
+        DOCKER_TLS_CERTDIR: ""
+  rules:
+    - if: '$PIPELINE_TYPE == "build_and_deploy"'
+  script:
+    - export GRADLE_USER_HOME=`pwd`/.gradle
+    - sh scripts/docker-build-fat-core-hub.sh --module-version=$MODULE_VERSION --release-type=$RELEASE_TYPE --supported-deploy-arch=DEPLOY_AMD64_ARM64
+  dependencies:
+    - build_gluesync
+  interruptible: true
+
+deploy_gluesync_windows:
+  stage: deploy
+  retry: 2
+  parallel:
+    matrix:
+      - WINDOWS_TAG: "ltsc2019"
+        WINDOWS_RUNNER_VERSION: "2019"
+      - WINDOWS_TAG: "ltsc2022"
+        WINDOWS_RUNNER_VERSION: "2022"
+      # - WINDOWS_TAG: "ltsc2025"
+      #   WINDOWS_RUNNER_VERSION: "2025"
+  tags:
+    - "hq-windows-shell-$WINDOWS_RUNNER_VERSION"
+  rules:
+    - if: '$PIPELINE_TYPE == "build_and_deploy"'
+  script:
+    - $env:GRADLE_USER_HOME = "$((Get-Location).Path)\.gradle"
+    - ./scripts/docker-build-win-fat-core-hub.ps1 --module-version=$MODULE_VERSION --release-type=$RELEASE_TYPE --windows-tag=$WINDOWS_TAG
+  dependencies:
+    - build_gluesync
+  interruptible: true
+  
+notify_gluesync_update:
+  stage: notify
+  retry: 2
+  parallel:
+    matrix:
+      - MODULE_TAG: 'core-hub'
+      - MODULE_TAG: 'cassandra'
+      - MODULE_TAG: 'postgresql-cdc'
+      - MODULE_TAG: 'mysql-cdc'
+      - MODULE_TAG: 'ibm-iseries'
+      - MODULE_TAG: 'couchbase'
+      - MODULE_TAG: 'mssql-ct'
+      - MODULE_TAG: 'mssql-cdc'
+      - MODULE_TAG: 'vertica'
+      - MODULE_TAG: 'kafka'
+      - MODULE_TAG: 'solace'
+      - MODULE_TAG: 'mongodb'
+      - MODULE_TAG: 'sybase'
+      - MODULE_TAG: 'dynamodb'
+      - MODULE_TAG: 'snowflake'
+      - MODULE_TAG: 'oracle-xstream'
+      - MODULE_TAG: 'oracle-triggers'
+      - MODULE_TAG: 'oracle-triggers-legacy'
+      - MODULE_TAG: 'oracle-logminer'
+      - MODULE_TAG: 'aerospike'
+      - MODULE_TAG: 'singlestore'
+      - MODULE_TAG: 'awss3'
+      - MODULE_TAG: 'cosmosdb'
+      - MODULE_TAG: 'informix'
+      - MODULE_TAG: 'google-cloud-storage'
+      - MODULE_TAG: 'ravendb'
+      - MODULE_TAG: 'google-pubsub'
+      - MODULE_TAG: 'redis'
+      - MODULE_TAG: 'cockroachdb'
+      - MODULE_TAG: 'mariadb-cdc'
+      - MODULE_TAG: 'google-bigquery'
+      - MODULE_TAG: 'scylladb'
+      - MODULE_TAG: 'yugabytedb'
+      - MODULE_TAG: 'gridgain'
+      - MODULE_TAG: 'db2-luw-triggers'
+      - MODULE_TAG: 'azure-data-lake'
+  tags:
+    - hq-linux-docker
+  rules:
+    - if: '$PIPELINE_TYPE == "build_and_deploy"'
+  script:
+    - apt-get update && apt-get install -y jq
+    - sh $CI_PROJECT_DIR/scripts/update-budibase.sh --tag=$MODULE_TAG  --module-version=$MODULE_VERSION --release-type=$RELEASE_TYPE
+  dependencies:
+    - deploy_gluesync_linux
+    - deploy_gluesync_windows
+  interruptible: true
