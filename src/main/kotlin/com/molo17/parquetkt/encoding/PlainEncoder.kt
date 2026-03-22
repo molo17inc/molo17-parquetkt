@@ -25,13 +25,7 @@ class PlainEncoder(private val type: ParquetType) {
     
     fun encode(values: Array<Any>): ByteArray {
         // Pre-allocate buffer with estimated size
-        val estimatedSize = when (type) {
-            ParquetType.BOOLEAN -> (values.size + 7) / 8
-            ParquetType.INT32, ParquetType.FLOAT -> values.size * 4
-            ParquetType.INT64, ParquetType.DOUBLE -> values.size * 8
-            ParquetType.INT96 -> values.size * 12
-            else -> values.size * 20 // Estimate for byte arrays
-        }
+        val estimatedSize = estimateSize(values.size)
         val output = ByteArrayOutputStream(estimatedSize)
         val writer = BinaryWriter(output)
         
@@ -48,6 +42,40 @@ class PlainEncoder(private val type: ParquetType) {
         
         writer.flush()
         return output.toByteArray()
+    }
+    
+    /**
+     * Memory-efficient encoding directly to an output stream.
+     * Avoids creating intermediate ByteArrayOutputStream when writing to file.
+     */
+    fun encodeTo(values: Array<Any>, output: ByteArrayOutputStream) {
+        val writer = BinaryWriter(output)
+        
+        when (type) {
+            ParquetType.BOOLEAN -> encodeBooleans(values, writer)
+            ParquetType.INT32 -> encodeInt32s(values, writer)
+            ParquetType.INT64 -> encodeInt64s(values, writer)
+            ParquetType.INT96 -> encodeInt96s(values, writer)
+            ParquetType.FLOAT -> encodeFloats(values, writer)
+            ParquetType.DOUBLE -> encodeDoubles(values, writer)
+            ParquetType.BYTE_ARRAY -> encodeByteArrays(values, writer)
+            ParquetType.FIXED_LEN_BYTE_ARRAY -> encodeFixedLenByteArrays(values, writer)
+        }
+        
+        writer.flush()
+    }
+    
+    /**
+     * Estimate the encoded size for pre-allocation.
+     */
+    fun estimateSize(valueCount: Int): Int {
+        return when (type) {
+            ParquetType.BOOLEAN -> (valueCount + 7) / 8
+            ParquetType.INT32, ParquetType.FLOAT -> valueCount * 4
+            ParquetType.INT64, ParquetType.DOUBLE -> valueCount * 8
+            ParquetType.INT96 -> valueCount * 12
+            else -> valueCount * 20 // Estimate for byte arrays
+        }
     }
     
     private fun encodeBooleans(values: Array<Any>, writer: BinaryWriter) {
