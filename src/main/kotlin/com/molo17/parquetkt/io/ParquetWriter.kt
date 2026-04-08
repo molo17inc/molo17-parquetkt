@@ -226,15 +226,23 @@ class ParquetWriter(
     /**
      * Validates that a row group has consistent data across all columns.
      * Throws IllegalStateException if validation fails to prevent writing corrupt data.
+     *
+     * Note: For nested types (lists, maps), columns can have different sizes
+     * because they store flattened values with repetition/definition levels.
+     * Only validates non-nested columns.
      */
     private fun validateRowGroup(rowGroup: RowGroup) {
         if (rowGroup.columnCount == 0) {
             throw IllegalStateException("Cannot write empty row group to $outputPath")
         }
-        
+
         val expectedRowCount = rowGroup.rowCount
         for (i in 0 until rowGroup.columnCount) {
             val column = rowGroup.getColumn(i)
+            // Skip validation for nested columns (lists, maps) which have repetition levels
+            if (column.repetitionLevels != null) {
+                continue
+            }
             val actualRowCount = column.size
             if (actualRowCount != expectedRowCount) {
                 throw IllegalStateException(
