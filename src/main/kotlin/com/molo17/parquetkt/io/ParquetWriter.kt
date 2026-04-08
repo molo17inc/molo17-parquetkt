@@ -380,9 +380,10 @@ class ParquetWriter(
     ): Pair<com.molo17.parquetkt.thrift.RowGroup, Long> {
         return try {
             // Prepare column data in parallel with exception handling
+            // Use Dispatchers.IO for compression to avoid blocking CPU-bound threads
             val compressedColumns = runBlocking {
                 (0 until rowGroup.columnCount).map { i ->
-                    async(Dispatchers.Default) {
+                    async(Dispatchers.IO) {
                         val column = rowGroup.getColumn(i)
                         val field = schema.getField(i)
                         try {
