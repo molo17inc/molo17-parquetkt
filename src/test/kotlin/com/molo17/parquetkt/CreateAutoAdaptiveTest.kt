@@ -83,6 +83,75 @@ class CreateAutoAdaptiveTest {
             total
         }
 
+    /**
+     * Verifies data content integrity by sampling rows and checking deterministic values.
+     * For the 300-pipeline test, we verify that string values match the expected pattern.
+     * Returns a pair of (cellsVerified, corruptionCount).
+     */
+    private fun verifyContentIntegrity(
+        file: File,
+        schema: ParquetSchema,
+        isNarrow: Boolean = true
+    ): Pair<Long, Int> {
+        var cellsVerified = 0L
+        var corruptionCount = 0
+
+        ParquetReader(file.absolutePath).use { reader ->
+            repeat(reader.rowGroupCount) { rgIdx ->
+                val rowGroup = reader.readRowGroup(rgIdx)
+                val rgRowCount = rowGroup.rowCount
+
+                // Sample first, middle, and last row of each row group
+                val sampleIndices = listOf(0, rgRowCount / 2, rgRowCount - 1).distinct()
+                    .filter { it >= 0 && it < rgRowCount }
+
+                for (rowIdx in sampleIndices) {
+                    // Check each column's value at this row
+                    val checkColumns = schema.fieldCount.coerceAtMost(if (isNarrow) 3 else 5)
+                    for (colIdx in 0 until checkColumns) {
+                        @Suppress("UNCHECKED_CAST")
+                        val column = rowGroup.getColumn(colIdx) as DataColumn<Any?>
+                        val actualValue = column.data[rowIdx]
+
+                        // Null values are valid - just verify type for non-null
+                        if (actualValue == null) {
+                            cellsVerified++
+                            continue
+                        }
+
+                        // Verify based on data type
+                        when (column.field.dataType.name) {
+                            "INT64" -> {
+                                if (actualValue !is Long) corruptionCount++
+                            }
+                            "INT32" -> {
+                                if (actualValue !is Int) corruptionCount++
+                            }
+                            "DOUBLE" -> {
+                                if (actualValue !is Double) corruptionCount++
+                            }
+                            "BYTE_ARRAY" -> {
+                                // Strings are stored as ByteArray in Parquet, convert to verify pattern
+                                val str = when (actualValue) {
+                                    is String -> actualValue
+                                    is ByteArray -> String(actualValue, Charsets.UTF_8)
+                                    else -> null
+                                }
+                                // Verify pattern: "v{seed}_{row}_xxxxxxxxxxxxxxxx"
+                                if (str == null || !str.matches(Regex("v\\d+_\\d+_x+"))) {
+                                    corruptionCount++
+                                }
+                            }
+                        }
+                        cellsVerified++
+                    }
+                }
+            }
+        }
+
+        return cellsVerified to corruptionCount
+    }
+
     private fun formatBytes(bytes: Long): String {
         if (bytes <= 0) return "0 B"
         val units = arrayOf("B", "KB", "MB", "GB")
@@ -642,13 +711,17 @@ class CreateAutoAdaptiveTest {
         peakHeap.updateAndGet { prev -> max(prev, finalUsed) }
 
         // ── Readback verification ────────────────────────────────────────────
-        // Verify all 300 files: correct row count, no corrupt data
+        // Verify all 300 files: correct row count, content integrity, no corruption
         var totalRead = 0L
         var failedFiles = 0
         val readErrors = mutableListOf<String>()
+        var totalCellsVerified = 0L
+        var totalCorruptionFound = 0
 
         for (pipelineIdx in 0 until totalPipelines) {
             val file = files[pipelineIdx]
+            val isWide = pipelineIdx >= narrowPipelines
+            val schema = if (isWide) wideSchemaObj else narrowSchemaObj
             try {
                 assertTrue(file.exists() && file.length() > 0,
                     "Pipeline $pipelineIdx: file must be non-empty")
@@ -657,6 +730,10 @@ class CreateAutoAdaptiveTest {
                         totalRead += reader.readRowGroup(it).rowCount
                     }
                 }
+                // Content integrity check: sample cells and verify no corruption
+                val (cellsVerified, corruptionCount) = verifyContentIntegrity(file, schema, !isWide)
+                totalCellsVerified += cellsVerified
+                totalCorruptionFound += corruptionCount
             } catch (e: Exception) {
                 failedFiles++
                 if (readErrors.size < 5) {
@@ -675,6 +752,8 @@ class CreateAutoAdaptiveTest {
         println("Total written:    ${totalWritten.get()}")
         println("Total expected:   ${totalExpected.get()}")
         println("Total verified:   $totalRead")
+        println("Cells checked:    $totalCellsVerified (content integrity)")
+        println("Corruption found: $totalCorruptionFound cells")
         println("Failed files:     $failedFiles / $totalPipelines")
         println("Duration:         ${durationMs}ms (${"%.1f".format(durationMs / 1000.0)}s)")
         println("Throughput:       ${"%.0f".format(throughput)} rows/sec")
@@ -691,8 +770,12 @@ class CreateAutoAdaptiveTest {
             "$failedFiles files failed readback verification")
         assertEquals(totalWritten.get(), totalRead,
             "Row count mismatch: written=${totalWritten.get()} read=$totalRead")
+        assertEquals(0, totalCorruptionFound,
+            "Data corruption detected: $totalCorruptionFound cells failed content verification")
+        assertTrue(totalCellsVerified > 0,
+            "Content verification did not run: no cells were checked")
         assertTrue(durationMs < 5 * 60 * 1000,
             "Test exceeded 5-minute timeout: ${durationMs}ms")
-        println("✅ Scenario 6 passed — 300 pipelines, ${totalWritten.get()} rows, full integrity in ${"%.1f".format(durationMs / 1000.0)}s")
+        println("✅ Scenario 6 passed — 300 pipelines, ${totalWritten.get()} rows, $totalCellsVerified cells verified, zero corruption")
     }
 }

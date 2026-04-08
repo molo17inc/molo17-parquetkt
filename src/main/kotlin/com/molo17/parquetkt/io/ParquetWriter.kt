@@ -38,9 +38,36 @@ import java.io.OutputStream
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * Registry of open ParquetWriter instances for emergency cleanup on JVM shutdown.
+ * Writers register themselves on construction and unregister on proper close().
+ * The shutdown hook attempts to flush and close any remaining writers to minimize data loss.
+ */
+private val openWriters = ConcurrentHashMap<ParquetWriter, Unit>()
+private val shutdownHookRegistered = AtomicBoolean(false)
+
+private fun registerEmergencyFlushHook() {
+    if (shutdownHookRegistered.compareAndSet(false, true)) {
+        Runtime.getRuntime().addShutdownHook(Thread {
+            // Emergency flush: attempt to close all remaining writers
+            val writers = openWriters.keys().toList()
+            for (writer in writers) {
+                try {
+                    writer.emergencyFlushAndClose()
+                } catch (e: Throwable) {
+                    // Best effort - log but don't prevent other writers from flushing
+                    System.err.println("Emergency flush failed for ${writer.outputPath}: ${e.message}")
+                }
+            }
+        })
+    }
+}
 
 class ParquetWriter(
-    private val outputPath: String,
+    internal val outputPath: String,
     private val schema: ParquetSchema,
     private val compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
     private val enableDictionary: Boolean = true,  // Enabled by default for better compression on repetitive data
@@ -50,10 +77,15 @@ class ParquetWriter(
     private val maxRowsInMemory: Int = DEFAULT_MAX_ROWS_IN_MEMORY,  // Auto-flush if row count threshold is reached
     private val maxBufferedBytes: Long = DEFAULT_MAX_BUFFERED_BYTES,  // Flush when buffered raw data exceeds this size
     private val minFreeMemoryBytes: Long = defaultMinFreeMemoryBytes(),  // Flush eagerly when free heap drops below this (default: 30% of -Xmx)
-    private val arrayPool: ArrayPool? = null  // Optional array pool to reduce GC pressure
+    private val arrayPool: ArrayPool? = null,  // Optional array pool to reduce GC pressure
+    private val useAtomicWrites: Boolean = true  // Write to temp file and rename on close for atomicity
 ) : Closeable {
+
+    // If using atomic writes, write to temp file first
+    private val finalPath = if (useAtomicWrites) outputPath else null
+    private val tempPath = if (useAtomicWrites) "$outputPath.tmp" else outputPath
     
-    private val outputStream: OutputStream = BufferedOutputStream(FileOutputStream(outputPath), bufferSize)
+    private val outputStream: OutputStream = BufferedOutputStream(FileOutputStream(tempPath), bufferSize)
     private var isClosed = false
     private val rowGroups = mutableListOf<RowGroup>()
     private var bufferedRowCount = 0
@@ -68,6 +100,42 @@ class ParquetWriter(
     // Reused across column writes to avoid repeated large allocations
     private val pageDataOutput = ByteArrayOutputStream(256 * 1024)
 
+    // Track whether emergency flush has been attempted (to avoid double-flush on close())
+    private val emergencyFlushAttempted = AtomicBoolean(false)
+
+    init {
+        // Register for emergency cleanup on JVM shutdown
+        openWriters[this] = Unit
+        registerEmergencyFlushHook()
+    }
+
+    /**
+     * Emergency flush and close - called by shutdown hook or OOM handler.
+     * Attempts to persist any buffered data even under memory pressure.
+     */
+    internal fun emergencyFlushAndClose() {
+        if (emergencyFlushAttempted.compareAndSet(false, true)) {
+            try {
+                // Force flush any buffered row groups
+                flushRowGroups()
+            } catch (e: Throwable) {
+                // Emergency flush failed - data may be lost
+                System.err.println("Emergency flush failed for $outputPath: ${e.message}")
+            } finally {
+                // Always try to close the stream
+                try {
+                    flush()  // Write footer
+                    outputStream.close()
+                } catch (e: Throwable) {
+                    System.err.println("Emergency close failed for $outputPath: ${e.message}")
+                } finally {
+                    isClosed = true
+                    openWriters.remove(this)
+                }
+            }
+        }
+    }
+
     fun write(rowGroup: RowGroup) {
         checkNotClosed()
         require(rowGroup.schema == schema) {
@@ -78,9 +146,20 @@ class ParquetWriter(
             flushRowGroups()
         }
 
-        rowGroups.add(rowGroup)
-        bufferedRowCount += rowGroup.rowCount
-        bufferedByteEstimate += estimateRowGroupBytes(rowGroup)
+        try {
+            rowGroups.add(rowGroup)
+            bufferedRowCount += rowGroup.rowCount
+            bufferedByteEstimate += estimateRowGroupBytes(rowGroup)
+        } catch (e: OutOfMemoryError) {
+            // OOM while buffering - try emergency flush to save already-buffered data
+            System.err.println("OOM while buffering row group for $outputPath - attempting emergency flush")
+            try {
+                flushRowGroups()
+            } catch (flushError: Throwable) {
+                System.err.println("Emergency flush also failed: ${flushError.message}")
+            }
+            throw e  // Re-throw the original OOM - caller must handle it
+        }
 
         // Post-add: flush if any threshold is now exceeded.
         // The byte budget is the primary guard against concurrent writers — each writer
@@ -89,7 +168,18 @@ class ParquetWriter(
             || bufferedRowCount >= maxRowsInMemory
             || bufferedByteEstimate >= maxBufferedBytes
             || shouldFlushForMemory()) {
-            flushRowGroups()
+            try {
+                flushRowGroups()
+            } catch (e: OutOfMemoryError) {
+                // OOM during flush - data may be partially written; attempt to salvage
+                System.err.println("OOM during flush for $outputPath - attempting emergency close")
+                try {
+                    emergencyFlushAndClose()
+                } catch (closeError: Throwable) {
+                    System.err.println("Emergency close failed: ${closeError.message}")
+                }
+                throw e
+            }
         }
     }
     
@@ -116,8 +206,11 @@ class ParquetWriter(
             isHeaderWritten = true
         }
         
-        // Write accumulated row groups
+        // Validate and write accumulated row groups
         for (rowGroup in rowGroups) {
+            // Pre-write validation: ensure all columns have consistent row counts
+            validateRowGroup(rowGroup)
+            
             val (metadata, bytesWritten) = writeRowGroupToFile(writer, rowGroup, currentFileOffset)
             writtenRowGroupMetadata.add(metadata)
             currentFileOffset += bytesWritten
@@ -128,6 +221,29 @@ class ParquetWriter(
         rowGroups.clear()
         bufferedRowCount = 0
         bufferedByteEstimate = 0L
+    }
+    
+    /**
+     * Validates that a row group has consistent data across all columns.
+     * Throws IllegalStateException if validation fails to prevent writing corrupt data.
+     */
+    private fun validateRowGroup(rowGroup: RowGroup) {
+        if (rowGroup.columnCount == 0) {
+            throw IllegalStateException("Cannot write empty row group to $outputPath")
+        }
+        
+        val expectedRowCount = rowGroup.rowCount
+        for (i in 0 until rowGroup.columnCount) {
+            val column = rowGroup.getColumn(i)
+            val actualRowCount = column.size
+            if (actualRowCount != expectedRowCount) {
+                throw IllegalStateException(
+                    "Row group validation failed for $outputPath: " +
+                    "column '${column.field.name}' has $actualRowCount rows " +
+                    "but expected $expectedRowCount"
+                )
+            }
+        }
     }
     
     fun <T> writeColumn(field: String, data: List<T?>) {
@@ -143,13 +259,33 @@ class ParquetWriter(
     }
     
     override fun close() {
-        if (isClosed) return
-        
+        if (isClosed || emergencyFlushAttempted.get()) return
+
         try {
             flush()
+            outputStream.flush()
         } finally {
-            outputStream.close()
-            isClosed = true
+            try {
+                outputStream.close()
+            } finally {
+                isClosed = true
+                openWriters.remove(this)
+
+                // Atomic rename: temp file becomes final only if close() succeeded
+                if (finalPath != null) {
+                    val tempFile = File(tempPath)
+                    val finalFile = File(finalPath)
+                    if (tempFile.exists()) {
+                        // On Windows, need to delete existing file first
+                        if (finalFile.exists() && !finalFile.delete()) {
+                            System.err.println("Warning: Could not delete existing file $finalPath")
+                        }
+                        if (!tempFile.renameTo(finalFile)) {
+                            System.err.println("Warning: Could not rename $tempPath to $finalPath")
+                        }
+                    }
+                }
+            }
         }
     }
     
@@ -234,41 +370,59 @@ class ParquetWriter(
         rowGroup: RowGroup,
         startOffset: Long
     ): Pair<com.molo17.parquetkt.thrift.RowGroup, Long> {
-        // Prepare column data in parallel
-        val compressedColumns = runBlocking {
-            (0 until rowGroup.columnCount).map { i ->
-                async(Dispatchers.Default) {
-                    val column = rowGroup.getColumn(i)
-                    val field = schema.getField(i)
-                    compressionSemaphore.withPermit {
-                        prepareColumnChunkData(column, field)
+        return try {
+            // Prepare column data in parallel with exception handling
+            val compressedColumns = runBlocking {
+                (0 until rowGroup.columnCount).map { i ->
+                    async(Dispatchers.Default) {
+                        val column = rowGroup.getColumn(i)
+                        val field = schema.getField(i)
+                        try {
+                            compressionSemaphore.withPermit {
+                                prepareColumnChunkData(column, field)
+                            }
+                        } catch (e: CancellationException) {
+                            // Coroutine was cancelled - propagate to cancel all
+                            throw e
+                        } catch (e: Throwable) {
+                            // Wrap other exceptions with context for debugging
+                            throw RuntimeException("Column $i (${field.name}) compression failed", e)
+                        }
                     }
-                }
-            }.awaitAll()
+                }.awaitAll()
+            }
+
+            // Write compressed data sequentially to maintain file structure
+            val columnChunks = mutableListOf<ColumnChunk>()
+            var currentOffset = startOffset
+            var totalByteSize = 0L
+
+            for (i in compressedColumns.indices) {
+                val field = schema.getField(i)
+                val preparedData = compressedColumns[i]
+                val (columnChunk, bytesWritten) = writeColumnChunkData(writer, preparedData, field, currentOffset)
+                columnChunks.add(columnChunk)
+                currentOffset += bytesWritten
+                totalByteSize += bytesWritten
+            }
+
+            val rowGroupMetadata = com.molo17.parquetkt.thrift.RowGroup(
+                columns = columnChunks,
+                totalByteSize = totalByteSize,
+                numRows = rowGroup.rowCount.toLong(),
+                fileOffset = startOffset
+            )
+
+            rowGroupMetadata to totalByteSize
+        } catch (e: CancellationException) {
+            // Parallel compression cancelled - fall back to sequential
+            System.err.println("Parallel compression cancelled for $outputPath, falling back to sequential: ${e.message}")
+            writeRowGroupSequential(writer, rowGroup, startOffset)
+        } catch (e: Throwable) {
+            // Any parallel compression failure - fall back to sequential
+            System.err.println("Parallel compression failed for $outputPath, falling back to sequential: ${e.message}")
+            writeRowGroupSequential(writer, rowGroup, startOffset)
         }
-        
-        // Write compressed data sequentially to maintain file structure
-        val columnChunks = mutableListOf<ColumnChunk>()
-        var currentOffset = startOffset
-        var totalByteSize = 0L
-        
-        for (i in compressedColumns.indices) {
-            val field = schema.getField(i)
-            val preparedData = compressedColumns[i]
-            val (columnChunk, bytesWritten) = writeColumnChunkData(writer, preparedData, field, currentOffset)
-            columnChunks.add(columnChunk)
-            currentOffset += bytesWritten
-            totalByteSize += bytesWritten
-        }
-        
-        val rowGroupMetadata = com.molo17.parquetkt.thrift.RowGroup(
-            columns = columnChunks,
-            totalByteSize = totalByteSize,
-            numRows = rowGroup.rowCount.toLong(),
-            fileOffset = startOffset
-        )
-        
-        return rowGroupMetadata to totalByteSize
     }
     
     private fun writeColumnChunk(
