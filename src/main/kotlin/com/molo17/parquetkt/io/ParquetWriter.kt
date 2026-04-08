@@ -237,7 +237,7 @@ class ParquetWriter(
         // Prepare column data in parallel
         val compressedColumns = runBlocking {
             (0 until rowGroup.columnCount).map { i ->
-                async(Dispatchers.Default) {
+                async(Dispatchers.IO) {
                     val column = rowGroup.getColumn(i)
                     val field = schema.getField(i)
                     compressionSemaphore.withPermit {
