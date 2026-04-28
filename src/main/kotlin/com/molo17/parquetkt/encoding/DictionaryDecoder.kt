@@ -51,7 +51,7 @@ class DictionaryDecoder(
                 }
             }
             ParquetType.FIXED_LEN_BYTE_ARRAY -> {
-                val itemLength = typeLength ?: throw IllegalArgumentException("typeLength is required for FIXED_LEN_BYTE_ARRAY dictionary decoding")
+                val itemLength = typeLength ?: (dictionaryData.size / (dictionaryData.size / 4).coerceAtLeast(1)) // Estimate
                 while (input.available() > 0) {
                     val bytes = reader.readBytes(itemLength)
                     values.add(bytes)

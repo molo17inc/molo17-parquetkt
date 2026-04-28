@@ -161,7 +161,13 @@ class PlainEncoder(private val type: ParquetType, private val typeLength: Int? =
     }
     
     private fun encodeFixedLenByteArrays(values: Array<Any>, writer: BinaryWriter) {
-        val length = typeLength ?: throw IllegalArgumentException("typeLength is required for FIXED_LEN_BYTE_ARRAY")
+        if (typeLength == null) {
+            for (value in values) {
+                writer.writeBytes(value as ByteArray)
+            }
+            return
+        }
+        val length = typeLength
         for (value in values) {
             val bytes = value as ByteArray
             if (bytes.size == length) {

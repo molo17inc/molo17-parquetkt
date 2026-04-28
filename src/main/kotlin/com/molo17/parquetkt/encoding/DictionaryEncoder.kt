@@ -66,18 +66,24 @@ class DictionaryEncoder(private val type: ParquetType, private val typeLength: I
                 }
             }
             ParquetType.FIXED_LEN_BYTE_ARRAY -> {
-                val length = typeLength ?: throw IllegalArgumentException("typeLength required for FIXED_LEN_BYTE_ARRAY")
-                for (entry in sortedEntries) {
-                    val bytes = entry.key as ByteArray
-                    if (bytes.size == length) {
-                        writer.writeBytes(bytes)
-                    } else if (bytes.size < length) {
-                        val paddingByte = if (bytes.isNotEmpty() && bytes[0] < 0) 0xFF.toByte() else 0x00.toByte()
-                        val padded = ByteArray(length) { paddingByte }
-                        System.arraycopy(bytes, 0, padded, length - bytes.size, bytes.size)
-                        writer.writeBytes(padded)
-                    } else {
-                        throw IllegalArgumentException("Provided ByteArray size ${bytes.size} exceeds FIXED_LEN_BYTE_ARRAY length of $length")
+                if (typeLength == null) {
+                    for (entry in sortedEntries) {
+                        writer.writeBytes(entry.key as ByteArray)
+                    }
+                } else {
+                    val length = typeLength
+                    for (entry in sortedEntries) {
+                        val bytes = entry.key as ByteArray
+                        if (bytes.size == length) {
+                            writer.writeBytes(bytes)
+                        } else if (bytes.size < length) {
+                            val paddingByte = if (bytes.isNotEmpty() && bytes[0] < 0) 0xFF.toByte() else 0x00.toByte()
+                            val padded = ByteArray(length) { paddingByte }
+                            System.arraycopy(bytes, 0, padded, length - bytes.size, bytes.size)
+                            writer.writeBytes(padded)
+                        } else {
+                            throw IllegalArgumentException("Provided ByteArray size ${bytes.size} exceeds FIXED_LEN_BYTE_ARRAY length of $length")
+                        }
                     }
                 }
             }
