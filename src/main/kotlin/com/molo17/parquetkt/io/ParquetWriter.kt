@@ -288,9 +288,9 @@ class ParquetWriter(
                            column.repetitionLevels == null
         
         val (encodedData, encoding, dictionaryPageData) = if (useDictionary) {
-            tryDictionaryEncoding(column.definedData as Array<Any>, field.dataType)
+            tryDictionaryEncoding(column.definedData as Array<Any>, field.dataType, field.length)
         } else {
-            val encoder = PlainEncoder(field.dataType)
+            val encoder = PlainEncoder(field.dataType, field.length)
             Triple(encoder.encode(column.definedData as Array<Any>), Encoding.PLAIN, null)
         }
         
@@ -438,9 +438,9 @@ class ParquetWriter(
                            column.repetitionLevels == null
         
         val (encodedData, encoding, dictionaryPageData) = if (useDictionary) {
-            tryDictionaryEncoding(column.definedData as Array<Any>, field.dataType)
+            tryDictionaryEncoding(column.definedData as Array<Any>, field.dataType, field.length)
         } else {
-            val encoder = PlainEncoder(field.dataType)
+            val encoder = PlainEncoder(field.dataType, field.length)
             Triple(encoder.encode(column.definedData as Array<Any>), Encoding.PLAIN, null)
         }
         
@@ -590,9 +590,10 @@ class ParquetWriter(
     
     private fun tryDictionaryEncoding(
         values: Array<Any>,
-        dataType: ParquetType
+        dataType: ParquetType,
+        typeLength: Int? = null
     ): Triple<ByteArray, Encoding, DictionaryPageData?> {
-        val dictEncoder = DictionaryEncoder(dataType)
+        val dictEncoder = DictionaryEncoder(dataType, typeLength)
         dictEncoder.addAll(values)
         
         return if (dictEncoder.shouldUseDictionary()) {
@@ -601,7 +602,7 @@ class ParquetWriter(
             val dictionaryPageData = DictionaryPageData(dictionaryData, dictEncoder.getDictionarySize())
             Triple(indicesData, Encoding.RLE_DICTIONARY, dictionaryPageData)
         } else {
-            val plainEncoder = PlainEncoder(dataType)
+            val plainEncoder = PlainEncoder(dataType, typeLength)
             Triple(plainEncoder.encode(values), Encoding.PLAIN, null)
         }
     }

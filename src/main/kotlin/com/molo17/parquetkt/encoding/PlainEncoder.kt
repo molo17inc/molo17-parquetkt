@@ -21,7 +21,7 @@ import com.molo17.parquetkt.format.BinaryWriter
 import com.molo17.parquetkt.schema.ParquetType
 import java.io.ByteArrayOutputStream
 
-class PlainEncoder(private val type: ParquetType) {
+class PlainEncoder(private val type: ParquetType, private val typeLength: Int? = null) {
     
     fun encode(values: Array<Any>): ByteArray {
         // Pre-allocate buffer with estimated size
@@ -161,8 +161,20 @@ class PlainEncoder(private val type: ParquetType) {
     }
     
     private fun encodeFixedLenByteArrays(values: Array<Any>, writer: BinaryWriter) {
+        val length = typeLength ?: throw IllegalArgumentException("typeLength is required for FIXED_LEN_BYTE_ARRAY")
         for (value in values) {
-            writer.writeBytes(value as ByteArray)
+            val bytes = value as ByteArray
+            if (bytes.size == length) {
+                writer.writeBytes(bytes)
+            } else if (bytes.size < length) {
+                // Pad with sign extension (or zeros if positive) to match the required length
+                val paddingByte = if (bytes.isNotEmpty() && bytes[0] < 0) 0xFF.toByte() else 0x00.toByte()
+                val padded = ByteArray(length) { paddingByte }
+                System.arraycopy(bytes, 0, padded, length - bytes.size, bytes.size)
+                writer.writeBytes(padded)
+            } else {
+                throw IllegalArgumentException("Provided ByteArray of size ${bytes.size} exceeds FIXED_LEN_BYTE_ARRAY length of $length")
+            }
         }
     }
 }

@@ -282,7 +282,7 @@ class ParquetReader(
         val encoding = pageHeader.dataPageHeader?.encoding ?: Encoding.PLAIN
         val values = if (encoding == Encoding.RLE_DICTIONARY && dictionaryData != null) {
             // Dictionary-encoded data
-            val dictDecoder = DictionaryDecoder(field.dataType, dictionaryData)
+            val dictDecoder = DictionaryDecoder(field.dataType, dictionaryData, field.length)
             dictDecoder.decode(valueData, nonNullCount)
         } else {
             // Plain-encoded data

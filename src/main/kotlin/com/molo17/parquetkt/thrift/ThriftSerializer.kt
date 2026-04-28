@@ -81,6 +81,13 @@ object ThriftSerializer {
             lastFieldId = 1
         }
         
+        // Field 2: type_length (i32) - optional
+        if (element.typeLength != null) {
+            writeFieldBegin(writer, 2, lastFieldId, ThriftType.I32)
+            writer.writeVarInt(zigzagEncode(element.typeLength))
+            lastFieldId = 2
+        }
+        
         // Field 3: repetition_type (i32) - optional
         if (element.repetitionType != null) {
             writeFieldBegin(writer, 3, lastFieldId, ThriftType.I32)

@@ -23,7 +23,8 @@ import java.io.ByteArrayInputStream
 
 class DictionaryDecoder(
     private val type: ParquetType,
-    private val dictionaryData: ByteArray
+    private val dictionaryData: ByteArray,
+    private val typeLength: Int? = null
 ) {
     private val dictionary: Array<Any> by lazy {
         decodeDictionary()
@@ -50,7 +51,7 @@ class DictionaryDecoder(
                 }
             }
             ParquetType.FIXED_LEN_BYTE_ARRAY -> {
-                val itemLength = dictionaryData.size / (dictionaryData.size / 4) // Estimate
+                val itemLength = typeLength ?: throw IllegalArgumentException("typeLength is required for FIXED_LEN_BYTE_ARRAY dictionary decoding")
                 while (input.available() > 0) {
                     val bytes = reader.readBytes(itemLength)
                     values.add(bytes)

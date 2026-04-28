@@ -230,10 +230,11 @@ class LogicalTypeMetadataTest {
         
         // For DECIMAL, we need to encode the value as bytes
         // 123.45 with scale 2 = 12345 as a big integer
-        val decimalBytes = ByteArray(16) { 0 }
+        val requiredLength = schema.fields[1].length ?: 16
+        val decimalBytes = ByteArray(requiredLength) { 0 }
         val value = 12345
-        decimalBytes[15] = (value and 0xFF).toByte()
-        decimalBytes[14] = ((value shr 8) and 0xFF).toByte()
+        decimalBytes[requiredLength - 1] = (value and 0xFF).toByte()
+        decimalBytes[requiredLength - 2] = ((value shr 8) and 0xFF).toByte()
         
         val columns = listOf(
             com.molo17.parquetkt.data.DataColumn(schema.fields[0], arrayOf(1L)),

@@ -104,11 +104,15 @@ data class DataField(
         }
         
         fun decimal(name: String, precision: Int, scale: Int, nullable: Boolean = false): DataField {
+            // Compute the minimum number of bytes required to store this precision
+            // ceil((precision - 1) * log2(10) / 8 + 1)
+            val length = Math.ceil((precision - 1) * Math.log10(10.0) / Math.log10(2.0) / 8.0 + 1).toInt()
             return DataField(
                 name = name,
                 dataType = ParquetType.FIXED_LEN_BYTE_ARRAY,
                 logicalType = LogicalType.DECIMAL,
                 repetition = if (nullable) Repetition.OPTIONAL else Repetition.REQUIRED,
+                length = length,
                 precision = precision,
                 scale = scale
             )

@@ -21,7 +21,7 @@ import com.molo17.parquetkt.format.BinaryWriter
 import com.molo17.parquetkt.schema.ParquetType
 import java.io.ByteArrayOutputStream
 
-class DictionaryEncoder(private val type: ParquetType) {
+class DictionaryEncoder(private val type: ParquetType, private val typeLength: Int? = null) {
     private val dictionary = mutableMapOf<Any, Int>()
     private val indices = mutableListOf<Int>()
     private var nextIndex = 0
@@ -66,8 +66,19 @@ class DictionaryEncoder(private val type: ParquetType) {
                 }
             }
             ParquetType.FIXED_LEN_BYTE_ARRAY -> {
+                val length = typeLength ?: throw IllegalArgumentException("typeLength required for FIXED_LEN_BYTE_ARRAY")
                 for (entry in sortedEntries) {
-                    writer.writeBytes(entry.key as ByteArray)
+                    val bytes = entry.key as ByteArray
+                    if (bytes.size == length) {
+                        writer.writeBytes(bytes)
+                    } else if (bytes.size < length) {
+                        val paddingByte = if (bytes.isNotEmpty() && bytes[0] < 0) 0xFF.toByte() else 0x00.toByte()
+                        val padded = ByteArray(length) { paddingByte }
+                        System.arraycopy(bytes, 0, padded, length - bytes.size, bytes.size)
+                        writer.writeBytes(padded)
+                    } else {
+                        throw IllegalArgumentException("Provided ByteArray size ${bytes.size} exceeds FIXED_LEN_BYTE_ARRAY length of $length")
+                    }
                 }
             }
             else -> throw UnsupportedOperationException("Dictionary encoding only supported for BYTE_ARRAY and FIXED_LEN_BYTE_ARRAY")
