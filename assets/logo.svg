@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="28.145 17.5 448 448" width="448px" height="448px">
+  <defs>
+    <linearGradient id="colGradient1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" stop-color="#7F52FF"/>
+      <stop offset="1" stop-color="#5B3FD9"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="4" dy="8" stdDeviation="12" flood-opacity="0.15"/>
+    </filter>
+    <linearGradient id="colGradient3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" stop-color="#E24A58"/>
+      <stop offset="1" stop-color="#C73E4A"/>
+    </linearGradient>
+    <linearGradient id="colGradient2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0" stop-color="#9B7BFF"/>
+      <stop offset="1" stop-color="#7F52FF"/>
+    </linearGradient>
+    <radialGradient id="paint0_radial_4080_74" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(-48, 0, 0, -48, 400.654537, 320.843443)">
+      <stop stop-color="#E44857"/>
+      <stop offset="0.5045" stop-color="#C711E1"/>
+      <stop offset="1" stop-color="#7F52FF"/>
+    </radialGradient>
+  </defs>
+  <rect x="28.145" y="17.5" width="448" height="448" rx="96" fill="#1A1A2E" style="stroke-width: 1;"/>
+  <rect x="96.145" y="125.5" width="64" height="232" rx="16" fill="url(#colGradient1)" filter="url(#shadow)" style="stroke-width: 1;"/>
+  <rect x="192.145" y="85.5" width="64" height="312" rx="16" fill="url(#colGradient3)" filter="url(#shadow)" style="stroke-width: 1;"/>
+  <rect x="288.145" y="125.5" width="64" height="232" rx="16" fill="url(#colGradient2)" filter="url(#shadow)" style="stroke-width: 1;"/>
+  <circle cx="376.145" cy="345.5" r="56" fill="#FFFFFF" filter="url(#shadow)" style="stroke-width: 1;"/>
+  <path d="M 412.145 81.5 L 412.145 145.5 L 348.145 81.5 L 412.145 81.5 Z" fill="#FFFFFF" opacity="0.1" style="stroke-width: 1;"/>
+  <path d="M 400.654 368.844 L 352.654 368.844 L 352.654 320.844 L 400.654 320.844 L 376.159 344.491 L 400.654 368.844 Z" fill="url(#paint0_radial_4080_74)" style="stroke-width: 1;"/>
+</svg>
