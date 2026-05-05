@@ -113,9 +113,9 @@ object ThriftDeserializer {
                     val ordinal = reader.readInt32Zigzag()
                     convertedType = ConvertedType.values().getOrNull(ordinal)
                 }
-                7 -> logicalType = readLogicalType(reader)
-                8 -> scale = reader.readInt32Zigzag()
-                9 -> precision = reader.readInt32Zigzag()
+                7 -> scale = reader.readInt32Zigzag()
+                8 -> precision = reader.readInt32Zigzag()
+                10 -> logicalType = readLogicalType(reader)
                 else -> skipField(reader, fieldType)
             }
         }
@@ -147,17 +147,17 @@ object ThriftDeserializer {
             
             result = when (fieldId) {
                 1 -> { skipField(reader, fieldType); LogicalTypeAnnotation.String }
-                2 -> readDecimalType(reader)
-                3 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Enum }
-                4 -> { skipField(reader, fieldType); LogicalTypeAnnotation.List }
-                5 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Date }
-                6 -> readTimeType(reader)
-                7 -> readTimestampType(reader)
-                8 -> readIntegerType(reader)
-                9 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Map }
-                10 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Json }
-                11 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Bson }
-                12 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Uuid }
+                2 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Map }
+                3 -> { skipField(reader, fieldType); LogicalTypeAnnotation.List }
+                4 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Enum }
+                5 -> readDecimalType(reader)
+                6 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Date }
+                7 -> readTimeType(reader)
+                8 -> readTimestampType(reader)
+                10 -> readIntegerType(reader)
+                12 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Json }
+                13 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Bson }
+                14 -> { skipField(reader, fieldType); LogicalTypeAnnotation.Uuid }
                 else -> { skipField(reader, fieldType); null }
             }
         }
