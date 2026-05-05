@@ -3,7 +3,7 @@
 A fully managed, pure Kotlin library for reading and writing Apache Parquet files. This is a port of the excellent [parquet-dotnet](https://github.com/aloneguid/parquet-dotnet) library from C# to Kotlin.
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
-[![Test Coverage](https://img.shields.io/badge/tests-111%20passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
+[![Test Coverage](https://img.shields.io/badge/tests-112%20passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 ## Features
@@ -16,7 +16,7 @@ A fully managed, pure Kotlin library for reading and writing Apache Parquet file
 - 🗜️ **Compression** - Support for SNAPPY, GZIP, ZSTD, and UNCOMPRESSED
 - 🎨 **Multiple APIs** - High-level and low-level APIs for different use cases
 - ⚡ **High Performance** - 300K+ rows/second throughput
-- ✅ **Production Ready** - Comprehensive test coverage (111 tests passing)
+- ✅ **Production Ready** - Comprehensive test coverage (112 tests passing)
 - 🔧 **Nullable Fields** - Full support for optional/nullable columns
 - 🌊 **Coroutines Support** - Async I/O with suspend functions and Flow API
 
@@ -452,12 +452,12 @@ This library provides a similar API to parquet-dotnet while leveraging Kotlin's 
 | Nullable fields | ✅ | ✅ |
 | Compression codecs | ✅ | ✅ (4 codecs) |
 | Streaming reads | ✅ | ✅ (Sequences) |
-| Production ready | ✅ | ✅ (111 tests) |
+| Production ready | ✅ | ✅ (112 tests) |
 | Coroutines support | ❌ | ✅ (Flow API) |
 
 ## Test Coverage
 
-The library has comprehensive test coverage with **111 tests passing (100%)**:
+The library has comprehensive test coverage with **112 tests passing (100%)**:
 
 - ✅ **IntegrationTest** (5 tests) - Core read/write operations, compression codecs, nullable fields
 - ✅ **ParquetFileTest** (3 tests) - High-level API, object serialization, schema reading
@@ -472,6 +472,7 @@ The library has comprehensive test coverage with **111 tests passing (100%)**:
 - ✅ **NestedTypesSerializationTest** (9 tests) - List serialization/deserialization, file I/O, nullable lists
 - ✅ **StructsAndMapsTest** (7 tests) - Schema reflection, Struct/Map serialization/deserialization
 - ✅ **LogicalTypeMetadataTest** (6 tests) - Modern logical type support (DATE, TIME, TIMESTAMP, STRING, DECIMAL)
+- ✅ **DecimalDataTest** (2 tests) - Decimal field encoding/decoding, including `scale = 0` (integer-valued decimals) and mismatched byte-length padding
 - ✅ **StreamingWriteTest** (3 tests) - Memory-efficient streaming writes, auto-flush, manual flush control
 - ✅ **ArrayPoolTest** (8 tests) - Array pooling, bucket sizing, concurrent access, pool statistics
 - ✅ **ArrayPoolIntegrationTest** (3 tests) - ArrayPool integration with ParquetWriter, memory efficiency

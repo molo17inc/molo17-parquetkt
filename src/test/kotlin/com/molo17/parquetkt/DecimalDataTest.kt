@@ -15,6 +15,47 @@ import java.io.File
 class DecimalDataTest {
 
     @Test
+    fun `test decimal with scale 0`(@TempDir tempDir: File) {
+        val file = File(tempDir, "decimal_scale_zero.parquet")
+
+        // scale = 0 means the decimal represents a whole number
+        val schema = ParquetSchema.create(
+            DataField.decimal("amount", precision = 10, scale = 0)
+        )
+
+        val amountField = schema.fields[0]
+        assertEquals(ParquetType.FIXED_LEN_BYTE_ARRAY, amountField.dataType)
+        assertEquals(LogicalType.DECIMAL, amountField.logicalType)
+        assertEquals(10, amountField.precision)
+        assertEquals(0, amountField.scale)
+
+        val requiredLength = amountField.length!!
+        // Encode the integer value 42 as big-endian bytes
+        val inputBytes = ByteArray(requiredLength) { 0 }
+        inputBytes[requiredLength - 1] = 42
+
+        val writer = ParquetWriter(file.absolutePath, schema)
+        writer.writeRowGroup(listOf(DataColumn(amountField, arrayOf(inputBytes))))
+        writer.close()
+
+        assertTrue(file.exists())
+
+        val reader = ParquetReader(file.absolutePath)
+        assertEquals(1, reader.rowGroupCount)
+
+        val readSchema = reader.schema
+        val readAmountField = readSchema.fields[0]
+        assertEquals(10, readAmountField.precision)
+        assertEquals(0, readAmountField.scale)
+
+        val readRowGroup = reader.readRowGroup(0)
+        val readBytes = readRowGroup.columns[0].rawData[0] as ByteArray
+        assertEquals(requiredLength, readBytes.size)
+        assertEquals(42.toByte(), readBytes[requiredLength - 1])
+        reader.close()
+    }
+
+    @Test
     fun `test decimal with 8-byte input array on 9-byte required precision`(@TempDir tempDir: File) {
         val file = File(tempDir, "decimal_fixed_len.parquet")
         
