@@ -3,7 +3,7 @@
 A fully managed, pure Kotlin library for reading and writing Apache Parquet files. This is a port of the excellent [parquet-dotnet](https://github.com/aloneguid/parquet-dotnet) library from C# to Kotlin.
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
-[![Test Coverage](https://img.shields.io/badge/tests-112%20passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
+[![Test Coverage](https://img.shields.io/badge/tests-128%20passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 ## Features
@@ -16,7 +16,7 @@ A fully managed, pure Kotlin library for reading and writing Apache Parquet file
 - 🗜️ **Compression** - Support for SNAPPY, GZIP, ZSTD, and UNCOMPRESSED
 - 🎨 **Multiple APIs** - High-level and low-level APIs for different use cases
 - ⚡ **High Performance** - 300K+ rows/second throughput
-- ✅ **Production Ready** - Comprehensive test coverage (112 tests passing)
+- ✅ **Production Ready** - Comprehensive test coverage (128 tests passing)
 - 🔧 **Nullable Fields** - Full support for optional/nullable columns
 - 🌊 **Coroutines Support** - Async I/O with suspend functions and Flow API
 
@@ -452,12 +452,12 @@ This library provides a similar API to parquet-dotnet while leveraging Kotlin's 
 | Nullable fields | ✅ | ✅ |
 | Compression codecs | ✅ | ✅ (4 codecs) |
 | Streaming reads | ✅ | ✅ (Sequences) |
-| Production ready | ✅ | ✅ (112 tests) |
+| Production ready | ✅ | ✅ (128 tests) |
 | Coroutines support | ❌ | ✅ (Flow API) |
 
 ## Test Coverage
 
-The library has comprehensive test coverage with **112 tests passing (100%)**:
+The library has comprehensive test coverage with **128 tests passing (100%)**:
 
 - ✅ **IntegrationTest** (5 tests) - Core read/write operations, compression codecs, nullable fields
 - ✅ **ParquetFileTest** (3 tests) - High-level API, object serialization, schema reading
@@ -469,14 +469,16 @@ The library has comprehensive test coverage with **112 tests passing (100%)**:
 - ✅ **NestedDataColumnTest** (6 tests) - Nested data columns, reconstruction, round-trip
 - ✅ **NestedTypesEndToEndTest** (4 tests) - End-to-end nested types integration
 - ✅ **LevelEncoderTest** (7 tests) - Level encoding/decoding with varints
-- ✅ **NestedTypesSerializationTest** (9 tests) - List serialization/deserialization, file I/O, nullable lists
-- ✅ **StructsAndMapsTest** (7 tests) - Schema reflection, Struct/Map serialization/deserialization
+- ✅ **DictionaryEncodingCompatibilityTest** (3 tests) - Dictionary encoding metadata, external reader compatibility
+- ✅ **EncodingEnumTest** (3 tests) - Parquet encoding enum values and defaults
 - ✅ **LogicalTypeMetadataTest** (6 tests) - Modern logical type support (DATE, TIME, TIMESTAMP, STRING, DECIMAL)
 - ✅ **DecimalDataTest** (2 tests) - Decimal field encoding/decoding, including `scale = 0` (integer-valued decimals) and mismatched byte-length padding
 - ✅ **StreamingWriteTest** (3 tests) - Memory-efficient streaming writes, auto-flush, manual flush control
 - ✅ **ArrayPoolTest** (8 tests) - Array pooling, bucket sizing, concurrent access, pool statistics
 - ✅ **ArrayPoolIntegrationTest** (3 tests) - ArrayPool integration with ParquetWriter, memory efficiency
 - ✅ **StatisticsTest** (7 tests) - Min/max/null_count calculation for all data types, statistics serialization
+- ✅ **ThriftDecimalFieldIdTest** (4 tests) - Thrift field ID correctness for precision/scale, full round-trip validation
+- ✅ **PyArrowCompatibilityTest** (12 tests) - External validation with PyArrow for all types, compressions, and temporal types
 
 ### Adaptive Memory & Stress Tests
 
@@ -499,6 +501,29 @@ These scenarios mirror GlueSync production workloads and guard against regressio
 - **Large snapshot with wide schema** – 100-column snapshots to verify metadata scaling and heap stability.
 - **Artificial memory pressure** – Background allocator grabs 500 MB chunks while writers continue without corruption.
 - **Sustained high throughput** – 20M+ rows streamed with memory growth tracking to ensure no runaway allocations.
+
+## PyArrow Compatibility
+
+All files produced by this library are validated against [Apache PyArrow](https://arrow.apache.org/docs/python/parquet.html) to guarantee full interoperability with the broader Parquet ecosystem (Spark, DuckDB, Pandas, Arrow, etc.).
+
+The `PyArrowCompatibilityTest` suite runs `pyarrow.parquet` as an external validator in CI and verifies:
+
+| Test | What it validates |
+| ---- | ----------------- |
+| Primitive types | `bool`, `int32`, `int64`, `float`, `double`, `binary` |
+| String logical type | UTF-8 annotation read as `string` / `large_string` |
+| DATE | `date32[day]` |
+| TIME | `time64[us]` |
+| TIMESTAMP (millis + micros) | `timestamp[ms, tz=UTC]`, `timestamp[us, tz=UTC]` |
+| DECIMAL | `decimal128(precision, scale)` with correct values |
+| Nullable columns | Null values round-trip correctly |
+| Multiple row groups | Row group count and total row count match |
+| SNAPPY compression | Decompresses and reads correctly |
+| GZIP compression | Decompresses and reads correctly |
+| ZSTD compression | Decompresses and reads correctly |
+| All temporal types combined | DATE + TIME + TIMESTAMP in a single file |
+
+These tests shell out to `python3` with PyArrow and assert on both schema types and data values, ensuring byte-level Thrift spec compliance.
 
 ## Roadmap
 

@@ -18,6 +18,8 @@ stages:
 before_script:
   - export GRADLE_USER_HOME=`pwd`/.gradle
   - chmod +x ./gradlew
+  - apt-get update && apt-get install -y python3 python3-pip --no-install-recommends
+  - pip3 install pyarrow
   - |
     if [ -n "$CI_COMMIT_TAG" ]; then
       TAG_VERSION="${CI_COMMIT_TAG#v}"

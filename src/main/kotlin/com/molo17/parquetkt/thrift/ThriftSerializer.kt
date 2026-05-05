@@ -114,25 +114,25 @@ object ThriftSerializer {
             lastFieldId = 6
         }
         
-        // Field 8: scale (i32) - optional
+        // Field 7: scale (i32) - optional
         if (element.scale != null) {
-            writeFieldBegin(writer, 8, lastFieldId, ThriftType.I32)
+            writeFieldBegin(writer, 7, lastFieldId, ThriftType.I32)
             writer.writeVarInt(zigzagEncode(element.scale))
+            lastFieldId = 7
+        }
+        
+        // Field 8: precision (i32) - optional
+        if (element.precision != null) {
+            writeFieldBegin(writer, 8, lastFieldId, ThriftType.I32)
+            writer.writeVarInt(zigzagEncode(element.precision))
             lastFieldId = 8
         }
         
-        // Field 9: precision (i32) - optional
-        if (element.precision != null) {
-            writeFieldBegin(writer, 9, lastFieldId, ThriftType.I32)
-            writer.writeVarInt(zigzagEncode(element.precision))
-            lastFieldId = 9
-        }
-        
-        // Field 7: logicalType (struct) - optional (modern format)
+        // Field 10: logicalType (struct) - optional (modern format)
         if (element.logicalType != null) {
-            writeFieldBegin(writer, 7, lastFieldId, ThriftType.STRUCT)
+            writeFieldBegin(writer, 10, lastFieldId, ThriftType.STRUCT)
             serializeLogicalType(writer, element.logicalType)
-            lastFieldId = 7
+            lastFieldId = 10
         }
         
         // Stop field
@@ -453,19 +453,24 @@ object ThriftSerializer {
                 writeFieldBegin(writer, 1, lastFieldId, ThriftType.STRUCT)
                 writer.writeByte(0) // Empty struct
             }
-            is LogicalTypeAnnotation.Enum -> {
-                // Field 3: ENUM (struct with no fields)
+            is LogicalTypeAnnotation.Map -> {
+                // Field 2: MAP (struct with no fields)
+                writeFieldBegin(writer, 2, lastFieldId, ThriftType.STRUCT)
+                writer.writeByte(0) // Empty struct
+            }
+            is LogicalTypeAnnotation.List -> {
+                // Field 3: LIST (struct with no fields)
                 writeFieldBegin(writer, 3, lastFieldId, ThriftType.STRUCT)
                 writer.writeByte(0) // Empty struct
             }
-            is LogicalTypeAnnotation.Date -> {
-                // Field 5: DATE (struct with no fields)
-                writeFieldBegin(writer, 5, lastFieldId, ThriftType.STRUCT)
+            is LogicalTypeAnnotation.Enum -> {
+                // Field 4: ENUM (struct with no fields)
+                writeFieldBegin(writer, 4, lastFieldId, ThriftType.STRUCT)
                 writer.writeByte(0) // Empty struct
             }
             is LogicalTypeAnnotation.Decimal -> {
-                // Field 2: DECIMAL (struct with precision and scale)
-                writeFieldBegin(writer, 2, lastFieldId, ThriftType.STRUCT)
+                // Field 5: DECIMAL (struct with scale and precision)
+                writeFieldBegin(writer, 5, lastFieldId, ThriftType.STRUCT)
                 var decimalLastFieldId = 0
                 // Field 1: scale (i32)
                 writeFieldBegin(writer, 1, decimalLastFieldId, ThriftType.I32)
@@ -476,9 +481,14 @@ object ThriftSerializer {
                 writer.writeVarInt(zigzagEncode(logicalType.precision))
                 writer.writeByte(0) // End of DECIMAL struct
             }
-            is LogicalTypeAnnotation.Time -> {
-                // Field 6: TIME (struct with isAdjustedToUTC and unit)
+            is LogicalTypeAnnotation.Date -> {
+                // Field 6: DATE (struct with no fields)
                 writeFieldBegin(writer, 6, lastFieldId, ThriftType.STRUCT)
+                writer.writeByte(0) // Empty struct
+            }
+            is LogicalTypeAnnotation.Time -> {
+                // Field 7: TIME (struct with isAdjustedToUTC and unit)
+                writeFieldBegin(writer, 7, lastFieldId, ThriftType.STRUCT)
                 var timeLastFieldId = 0
                 // Field 1: isAdjustedToUTC (bool)
                 writeFieldBegin(writer, 1, timeLastFieldId, if (logicalType.isAdjustedToUTC) ThriftType.TRUE else ThriftType.FALSE)
@@ -489,8 +499,8 @@ object ThriftSerializer {
                 writer.writeByte(0) // End of TIME struct
             }
             is LogicalTypeAnnotation.Timestamp -> {
-                // Field 7: TIMESTAMP (struct with isAdjustedToUTC and unit)
-                writeFieldBegin(writer, 7, lastFieldId, ThriftType.STRUCT)
+                // Field 8: TIMESTAMP (struct with isAdjustedToUTC and unit)
+                writeFieldBegin(writer, 8, lastFieldId, ThriftType.STRUCT)
                 var timestampLastFieldId = 0
                 // Field 1: isAdjustedToUTC (bool)
                 writeFieldBegin(writer, 1, timestampLastFieldId, if (logicalType.isAdjustedToUTC) ThriftType.TRUE else ThriftType.FALSE)
@@ -501,8 +511,8 @@ object ThriftSerializer {
                 writer.writeByte(0) // End of TIMESTAMP struct
             }
             is LogicalTypeAnnotation.Integer -> {
-                // Field 8: INTEGER (struct with bitWidth and isSigned)
-                writeFieldBegin(writer, 8, lastFieldId, ThriftType.STRUCT)
+                // Field 10: INTEGER (struct with bitWidth and isSigned)
+                writeFieldBegin(writer, 10, lastFieldId, ThriftType.STRUCT)
                 var intLastFieldId = 0
                 // Field 1: bitWidth (i8)
                 writeFieldBegin(writer, 1, intLastFieldId, ThriftType.BYTE)
@@ -513,28 +523,18 @@ object ThriftSerializer {
                 writer.writeByte(0) // End of INTEGER struct
             }
             is LogicalTypeAnnotation.Json -> {
-                // Field 10: JSON (struct with no fields)
-                writeFieldBegin(writer, 10, lastFieldId, ThriftType.STRUCT)
-                writer.writeByte(0) // Empty struct
-            }
-            is LogicalTypeAnnotation.Bson -> {
-                // Field 11: BSON (struct with no fields)
-                writeFieldBegin(writer, 11, lastFieldId, ThriftType.STRUCT)
-                writer.writeByte(0) // Empty struct
-            }
-            is LogicalTypeAnnotation.Uuid -> {
-                // Field 12: UUID (struct with no fields)
+                // Field 12: JSON (struct with no fields)
                 writeFieldBegin(writer, 12, lastFieldId, ThriftType.STRUCT)
                 writer.writeByte(0) // Empty struct
             }
-            is LogicalTypeAnnotation.List -> {
-                // Field 4: LIST (struct with no fields)
-                writeFieldBegin(writer, 4, lastFieldId, ThriftType.STRUCT)
+            is LogicalTypeAnnotation.Bson -> {
+                // Field 13: BSON (struct with no fields)
+                writeFieldBegin(writer, 13, lastFieldId, ThriftType.STRUCT)
                 writer.writeByte(0) // Empty struct
             }
-            is LogicalTypeAnnotation.Map -> {
-                // Field 9: MAP (struct with no fields)
-                writeFieldBegin(writer, 9, lastFieldId, ThriftType.STRUCT)
+            is LogicalTypeAnnotation.Uuid -> {
+                // Field 14: UUID (struct with no fields)
+                writeFieldBegin(writer, 14, lastFieldId, ThriftType.STRUCT)
                 writer.writeByte(0) // Empty struct
             }
         }
