@@ -45,6 +45,7 @@ tasks.test {
         events("passed", "skipped", "failed")
         showStandardStreams = true
     }
+    systemProperty("parquetkt.version", project.version.toString())
     maxHeapSize = "4g"
     jvmArgs = listOf("-Xms2g", "-Xmx4g")
 }
@@ -57,6 +58,17 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
     kotlinOptions {
         freeCompilerArgs = listOf("-Xjsr305=strict")
         jvmTarget = "21"
+    }
+}
+
+tasks.withType<Jar> {
+    manifest {
+        attributes(
+            mapOf(
+                "Implementation-Title" to "parquetkt",
+                "Implementation-Version" to project.version.toString()
+            )
+        )
     }
 }
 

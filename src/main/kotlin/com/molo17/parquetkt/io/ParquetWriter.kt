@@ -23,6 +23,7 @@ import com.molo17.parquetkt.data.RowGroup
 import com.molo17.parquetkt.encoding.DictionaryEncoder
 import com.molo17.parquetkt.encoding.PlainEncoder
 import com.molo17.parquetkt.encoding.RleEncoder
+import com.molo17.parquetkt.encoding.LevelEncoder
 import com.molo17.parquetkt.format.BinaryWriter
 import com.molo17.parquetkt.format.ParquetConstants
 import com.molo17.parquetkt.schema.*
@@ -50,7 +51,8 @@ class ParquetWriter(
     private val maxRowsInMemory: Int = DEFAULT_MAX_ROWS_IN_MEMORY,  // Auto-flush if row count threshold is reached
     private val maxBufferedBytes: Long = DEFAULT_MAX_BUFFERED_BYTES,  // Flush when buffered raw data exceeds this size
     private val minFreeMemoryBytes: Long = defaultMinFreeMemoryBytes(),  // Flush eagerly when free heap drops below this (default: 30% of -Xmx)
-    private val arrayPool: ArrayPool? = null  // Optional array pool to reduce GC pressure
+    private val arrayPool: ArrayPool? = null,  // Optional array pool to reduce GC pressure
+    private val enableStrictWriteValidation: Boolean = false // Extra decompression guard; useful for diagnostics, slower
 ) : Closeable {
     
     private val outputStream: OutputStream = BufferedOutputStream(FileOutputStream(outputPath), bufferSize)
@@ -208,27 +210,27 @@ class ParquetWriter(
         val columnChunks = mutableListOf<ColumnChunk>()
         var currentOffset = startOffset
         var totalByteSize = 0L
-        
+
         for (i in 0 until rowGroup.columnCount) {
             val column = rowGroup.getColumn(i)
             val field = schema.getField(i)
-            
+
             val (columnChunk, bytesWritten) = writeColumnChunk(writer, column, field, currentOffset)
             columnChunks.add(columnChunk)
             currentOffset += bytesWritten
             totalByteSize += bytesWritten
         }
-        
+
         val rowGroupMetadata = com.molo17.parquetkt.thrift.RowGroup(
             columns = columnChunks,
             totalByteSize = totalByteSize,
             numRows = rowGroup.rowCount.toLong(),
             fileOffset = startOffset
         )
-        
+
         return rowGroupMetadata to totalByteSize
     }
-    
+
     private fun writeRowGroupParallel(
         writer: BinaryWriter,
         rowGroup: RowGroup,
@@ -246,12 +248,12 @@ class ParquetWriter(
                 }
             }.awaitAll()
         }
-        
+
         // Write compressed data sequentially to maintain file structure
         val columnChunks = mutableListOf<ColumnChunk>()
         var currentOffset = startOffset
         var totalByteSize = 0L
-        
+
         for (i in compressedColumns.indices) {
             val field = schema.getField(i)
             val preparedData = compressedColumns[i]
@@ -260,14 +262,14 @@ class ParquetWriter(
             currentOffset += bytesWritten
             totalByteSize += bytesWritten
         }
-        
+
         val rowGroupMetadata = com.molo17.parquetkt.thrift.RowGroup(
             columns = columnChunks,
             totalByteSize = totalByteSize,
             numRows = rowGroup.rowCount.toLong(),
             fileOffset = startOffset
         )
-        
+
         return rowGroupMetadata to totalByteSize
     }
     
@@ -300,27 +302,24 @@ class ParquetWriter(
         
         // Write repetition levels if present (for nested types)
         if (column.repetitionLevels != null && field.maxRepetitionLevel > 0) {
-            val encodedRepLevels = com.molo17.parquetkt.encoding.LevelEncoder.encodeLevels(
-                column.repetitionLevels
-            )
+            val bitWidth = LevelEncoder.getMaxBitWidth(maxOf(1, field.maxRepetitionLevel))
+            val encodedRepLevels = RleEncoder(bitWidth).encode(column.repetitionLevels)
             pageWriter.writeInt32(encodedRepLevels.size)
             pageWriter.writeBytes(encodedRepLevels)
         }
-        
+
         // Write definition levels if present (for nested types) or if nullable
         if (column.definitionLevels != null) {
             // Use provided definition levels (for nested types)
-            val encodedDefLevels = com.molo17.parquetkt.encoding.LevelEncoder.encodeLevels(
-                column.definitionLevels
-            )
+            val bitWidth = LevelEncoder.getMaxBitWidth(maxOf(1, field.maxDefinitionLevel))
+            val encodedDefLevels = RleEncoder(bitWidth).encode(column.definitionLevels)
             pageWriter.writeInt32(encodedDefLevels.size)
             pageWriter.writeBytes(encodedDefLevels)
         } else if (field.isNullable) {
-            // Generate definition levels for simple nullable fields (existing behavior)
+            // Generate definition levels for simple nullable fields.
             val raw = column.rawData
             val levels = IntArray(raw.size) { if (raw[it] == null) 0 else 1 }
-            val rleEncoder = com.molo17.parquetkt.encoding.RleEncoder(1)
-            val encodedDefLevels = rleEncoder.encode(levels)
+            val encodedDefLevels = RleEncoder(1).encode(levels)
             pageWriter.writeInt32(encodedDefLevels.size)
             pageWriter.writeBytes(encodedDefLevels)
         }
@@ -334,9 +333,19 @@ class ParquetWriter(
         // Compress the entire page (levels + data)
         val compressor = CompressionCodecFactory.getCompressor(compressionCodec)
         val compressedData = compressor.compress(uncompressedPageData)
-        
+
         val totalUncompressedSize = uncompressedPageData.size
         val totalCompressedSize = compressedData.size
+
+        validateEncodedPageOrThrow(
+            field = field,
+            rowCount = column.size,
+            definedCount = column.definedData.size,
+            encodedValuesSize = encodedData.size,
+            uncompressedPageData = uncompressedPageData,
+            compressedPageData = compressedData,
+            hasDictionary = dictionaryPageData != null
+        )
         
         // Write dictionary page if present
         if (dictionaryPageData != null) {
@@ -399,7 +408,7 @@ class ParquetWriter(
             pathInSchema = listOf(field.name),
             codec = compressionCodec,
             numValues = column.size.toLong(),
-            totalUncompressedSize = encodedData.size.toLong(),
+            totalUncompressedSize = totalUncompressedSize.toLong(),
             totalCompressedSize = totalCompressedSizeWithHeader,
             dataPageOffset = if (dictionaryPageData != null) currentOffset - (pageHeaderBytes.size + totalCompressedSize) else dataPageOffset,
             dictionaryPageOffset = if (dictionaryPageData != null) startOffset else null
@@ -419,7 +428,7 @@ class ParquetWriter(
         val encoding: Encoding,
         val dictionaryPageData: DictionaryPageData?,
         val columnSize: Int,
-        val statistics: com.molo17.parquetkt.thrift.Statistics?
+        val statistics: Statistics?
     )
     
     private data class DictionaryPageData(
@@ -451,25 +460,22 @@ class ParquetWriter(
         
         // Write repetition levels if present
         if (column.repetitionLevels != null && field.maxRepetitionLevel > 0) {
-            val encodedRepLevels = com.molo17.parquetkt.encoding.LevelEncoder.encodeLevels(
-                column.repetitionLevels
-            )
+            val bitWidth = LevelEncoder.getMaxBitWidth(maxOf(1, field.maxRepetitionLevel))
+            val encodedRepLevels = RleEncoder(bitWidth).encode(column.repetitionLevels)
             pageWriter.writeInt32(encodedRepLevels.size)
             pageWriter.writeBytes(encodedRepLevels)
         }
-        
+
         // Write definition levels if present
         if (column.definitionLevels != null) {
-            val encodedDefLevels = com.molo17.parquetkt.encoding.LevelEncoder.encodeLevels(
-                column.definitionLevels
-            )
+            val bitWidth = LevelEncoder.getMaxBitWidth(maxOf(1, field.maxDefinitionLevel))
+            val encodedDefLevels = RleEncoder(bitWidth).encode(column.definitionLevels)
             pageWriter.writeInt32(encodedDefLevels.size)
             pageWriter.writeBytes(encodedDefLevels)
         } else if (field.isNullable) {
             val raw = column.rawData
             val levels = IntArray(raw.size) { if (raw[it] == null) 0 else 1 }
-            val rleEncoder = com.molo17.parquetkt.encoding.RleEncoder(1)
-            val encodedDefLevels = rleEncoder.encode(levels)
+            val encodedDefLevels = RleEncoder(1).encode(levels)
             pageWriter.writeInt32(encodedDefLevels.size)
             pageWriter.writeBytes(encodedDefLevels)
         }
@@ -486,7 +492,17 @@ class ParquetWriter(
         // Compress the entire page (levels + data)
         val compressor = CompressionCodecFactory.getCompressor(compressionCodec)
         val compressedData = compressor.compress(uncompressedPageData)
-        
+
+        validateEncodedPageOrThrow(
+            field = field,
+            rowCount = column.size,
+            definedCount = column.definedData.size,
+            encodedValuesSize = encodedData.size,
+            uncompressedPageData = uncompressedPageData,
+            compressedPageData = compressedData,
+            hasDictionary = dictionaryPageData != null
+        )
+
         return PreparedColumnData(
             compressedData = compressedData,
             uncompressedSize = uncompressedPageData.size,
@@ -616,7 +632,7 @@ class ParquetWriter(
             schema = schemaElements,
             numRows = totalRows,
             rowGroups = rowGroups,
-            createdBy = "MOLO17 ParquetKt 1.0.0"
+            createdBy = "MOLO17 ParquetKt ${resolveLibraryVersion()}"
         )
     }
     
@@ -627,7 +643,75 @@ class ParquetWriter(
     private fun serializePageHeader(header: PageHeader): ByteArray {
         return ThriftSerializer.serializePageHeader(header)
     }
-    
+
+    private fun resolveLibraryVersion(): String {
+        return ParquetWriter::class.java.`package`?.implementationVersion
+            ?.takeIf { it.isNotBlank() }
+            ?: System.getProperty("parquetkt.version")
+            ?: System.getenv("RELEASE_VERSION")
+            ?: "dev"
+    }
+
+    private fun validateEncodedPageOrThrow(
+        field: DataField,
+        rowCount: Int,
+        definedCount: Int,
+        encodedValuesSize: Int,
+        uncompressedPageData: ByteArray,
+        compressedPageData: ByteArray,
+        hasDictionary: Boolean
+    ) {
+        val uncompressedSize = uncompressedPageData.size
+        val compressedSize = compressedPageData.size
+
+        val problems = mutableListOf<String>()
+        if (rowCount > 0 && definedCount > 0 && encodedValuesSize <= 0) {
+            problems += "encodedValuesSize=$encodedValuesSize with rowCount=$rowCount and definedCount=$definedCount"
+        }
+        if (rowCount > 0 && uncompressedSize <= 0) {
+            problems += "uncompressedPageSize=$uncompressedSize with rowCount=$rowCount"
+        }
+        if (rowCount > 0 && compressedSize <= 0) {
+            problems += "compressedPageSize=$compressedSize with rowCount=$rowCount"
+        }
+
+        if (enableStrictWriteValidation && rowCount > 0 && uncompressedSize > 0 && compressedSize > 0) {
+            try {
+                val compressor = CompressionCodecFactory.getCompressor(compressionCodec)
+                val decoded = compressor.decompress(compressedPageData, uncompressedSize)
+                if (decoded.size != uncompressedSize) {
+                    problems += "decompressedSize=${decoded.size} expected=$uncompressedSize"
+                }
+            } catch (e: Exception) {
+                problems += "decompressValidationFailed=${e::class.simpleName}:${e.message}"
+            }
+        }
+
+        if (problems.isNotEmpty()) {
+            val preview = compressedPageData.take(24).joinToString(" ") { "%02x".format(it) }
+            val diagnostic = buildString {
+                append("PARQUET_WRITE_GUARD_FAILURE")
+                append(" | field=").append(field.name)
+                append(" | type=").append(field.dataType)
+                append(" | logicalType=").append(field.logicalType)
+                append(" | codec=").append(compressionCodec)
+                append(" | rowCount=").append(rowCount)
+                append(" | definedCount=").append(definedCount)
+                append(" | encodedValuesSize=").append(encodedValuesSize)
+                append(" | uncompressedPageSize=").append(uncompressedSize)
+                append(" | compressedPageSize=").append(compressedSize)
+                append(" | hasDictionary=").append(hasDictionary)
+                append(" | fieldPrecision=").append(field.precision)
+                append(" | fieldScale=").append(field.scale)
+                append(" | fieldLength=").append(field.length)
+                append(" | compressedHeadHex=").append(preview)
+                append(" | problems=").append(problems.joinToString(";"))
+            }
+            System.err.println(diagnostic)
+            throw IllegalStateException(diagnostic)
+        }
+    }
+
     private fun checkNotClosed() {
         check(!isClosed) { "ParquetWriter is closed" }
     }
@@ -744,7 +828,8 @@ class ParquetWriter(
             file: File,
             schema: ParquetSchema,
             compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
-            enableDictionary: Boolean = false
+            enableDictionary: Boolean = false,
+            enableStrictWriteValidation: Boolean = false
         ): ParquetWriter = ParquetWriter(
             outputPath = file.absolutePath,
             schema = schema,
@@ -755,7 +840,8 @@ class ParquetWriter(
             maxRowsInMemory = LOW_MEMORY_MAX_ROWS,
             maxBufferedBytes = LOW_MEMORY_MAX_BUFFERED_BYTES,
             minFreeMemoryBytes = lowMemoryMinFreeBytes(),
-            arrayPool = ArrayPool.shared
+            arrayPool = ArrayPool.shared,
+            enableStrictWriteValidation = enableStrictWriteValidation
         )
         
         /**
@@ -765,7 +851,8 @@ class ParquetWriter(
             path: String,
             schema: ParquetSchema,
             compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
-            enableDictionary: Boolean = false
+            enableDictionary: Boolean = false,
+            enableStrictWriteValidation: Boolean = false
         ): ParquetWriter = ParquetWriter(
             outputPath = path,
             schema = schema,
@@ -776,7 +863,8 @@ class ParquetWriter(
             maxRowsInMemory = LOW_MEMORY_MAX_ROWS,
             maxBufferedBytes = LOW_MEMORY_MAX_BUFFERED_BYTES,
             minFreeMemoryBytes = lowMemoryMinFreeBytes(),
-            arrayPool = ArrayPool.shared
+            arrayPool = ArrayPool.shared,
+            enableStrictWriteValidation = enableStrictWriteValidation
         )
         
         /**
@@ -804,7 +892,8 @@ class ParquetWriter(
             file: File,
             schema: ParquetSchema,
             compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
-            enableDictionary: Boolean = false
+            enableDictionary: Boolean = false,
+            enableStrictWriteValidation: Boolean = false
         ): ParquetWriter {
             val rt = Runtime.getRuntime()
             val maxHeapMb = rt.maxMemory() / (1024 * 1024)
@@ -813,7 +902,7 @@ class ParquetWriter(
 
             // Priority 1: if heap is already under pressure at construction time, force low-memory
             if (freeRatio < 0.40 || rt.availableProcessors() < 4) {
-                return createLowMemory(file, schema, compressionCodec, enableDictionary)
+                return createLowMemory(file, schema, compressionCodec, enableDictionary, enableStrictWriteValidation)
             }
             
             // Priority 2: static tier selection based on maxMemory and schema width
@@ -830,7 +919,8 @@ class ParquetWriter(
                     maxRowGroupsInMemory = 1,
                     maxRowsInMemory = (50 * 1024 * 1024 / estimatedBytesPerRow).toInt().coerceIn(1_000, 50_000),
                     minFreeMemoryBytes = rt.maxMemory() / 3, // 33% free
-                    arrayPool = ArrayPool.shared
+                    arrayPool = ArrayPool.shared,
+                    enableStrictWriteValidation = enableStrictWriteValidation
                 )
                 // Medium memory: balanced settings
                 maxHeapMb < 2048 -> ParquetWriter(
@@ -842,7 +932,8 @@ class ParquetWriter(
                     maxRowGroupsInMemory = 3,
                     maxRowsInMemory = (100 * 1024 * 1024 / estimatedBytesPerRow).toInt().coerceIn(10_000, 100_000),
                     minFreeMemoryBytes = rt.maxMemory() / 4, // 25% free
-                    arrayPool = ArrayPool.shared
+                    arrayPool = ArrayPool.shared,
+                    enableStrictWriteValidation = enableStrictWriteValidation
                 )
                 // High memory: optimize for throughput
                 else -> ParquetWriter(
@@ -854,7 +945,8 @@ class ParquetWriter(
                     maxRowGroupsInMemory = DEFAULT_MAX_ROW_GROUPS_IN_MEMORY,
                     maxRowsInMemory = DEFAULT_MAX_ROWS_IN_MEMORY,
                     minFreeMemoryBytes = defaultMinFreeMemoryBytes(),
-                    arrayPool = ArrayPool.shared
+                    arrayPool = ArrayPool.shared,
+                    enableStrictWriteValidation = enableStrictWriteValidation
                 )
             }
         }
@@ -866,7 +958,8 @@ class ParquetWriter(
             path: String,
             schema: ParquetSchema,
             compressionCodec: CompressionCodec = CompressionCodec.SNAPPY,
-            enableDictionary: Boolean = false
-        ): ParquetWriter = createAuto(File(path), schema, compressionCodec, enableDictionary)
+            enableDictionary: Boolean = false,
+            enableStrictWriteValidation: Boolean = false
+        ): ParquetWriter = createAuto(File(path), schema, compressionCodec, enableDictionary, enableStrictWriteValidation)
     }
 }
