@@ -35,6 +35,26 @@ import kotlin.test.assertTrue
 
 class ComplexSchemaTest {
 
+    private fun assertPyArrowDecodes(file: File, expectedRows: Int, expectedColumns: Int) {
+        val script = """
+            import sys
+            import pyarrow.parquet as pq
+
+            table = pq.read_table(sys.argv[1])
+            print(f"{table.num_rows} {table.num_columns}")
+        """.trimIndent()
+
+        val process = ProcessBuilder("python3", "-c", script, file.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+
+        val output = process.inputStream.bufferedReader().readText().trim()
+        val exitCode = process.waitFor()
+
+        assertEquals(0, exitCode, "PyArrow failed to read generated file: $output")
+        assertTrue(output.startsWith("$expectedRows $expectedColumns"), "Unexpected PyArrow output: $output")
+    }
+
     private data class FieldSpec(
         val name: String,
         val required: Boolean,
@@ -81,6 +101,7 @@ class ComplexSchemaTest {
         tempFile.deleteOnExit()
 
         ParquetFile.write(tempFile, schema, listOf(rowGroup))
+        assertPyArrowDecodes(tempFile, expectedRows = rowCount, expectedColumns = specs.size)
 
         val readRowGroups = ParquetFile.read(tempFile)
         assertEquals(1, readRowGroups.size)
@@ -120,17 +141,7 @@ class ComplexSchemaTest {
         val rowGroup = com.molo17.parquetkt.data.RowGroup(schema, columns)
         ParquetFile.write(file, schema, listOf(rowGroup))
 
-        val process = ProcessBuilder(
-            "python3",
-            "-c",
-            "import pyarrow.parquet as pq; t=pq.read_table('${file.absolutePath}'); print(t.num_rows, t.num_columns)"
-        ).redirectErrorStream(true).start()
-
-        val output = process.inputStream.bufferedReader().readText().trim()
-        val exitCode = process.waitFor()
-
-        assertEquals(0, exitCode, "PyArrow failed to read generated file: $output")
-        assertTrue(output.startsWith("6 333"), "Unexpected PyArrow output: $output")
+        assertPyArrowDecodes(file, expectedRows = 6, expectedColumns = 333)
     }
 
     @Test

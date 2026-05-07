@@ -42,6 +42,30 @@ class Int64EncodingTest {
     @TempDir
     lateinit var tempDir: File
 
+    private fun assertPyArrowDecodes(file: File, expectedRows: Int, expectedColumns: Int? = null) {
+        val script = """
+            import sys
+            import pyarrow.parquet as pq
+
+            table = pq.read_table(sys.argv[1])
+            print(f"ROWS={table.num_rows}")
+            print(f"COLS={table.num_columns}")
+        """.trimIndent()
+
+        val process = ProcessBuilder("python3", "-c", script, file.absolutePath)
+            .redirectErrorStream(true)
+            .start()
+
+        val output = process.inputStream.bufferedReader().readText().trim()
+        val exitCode = process.waitFor()
+
+        assertEquals(0, exitCode, "PyArrow failed to decode ${file.absolutePath}: $output")
+        assertTrue(output.contains("ROWS=$expectedRows"), "Unexpected PyArrow row count for ${file.name}: $output")
+        if (expectedColumns != null) {
+            assertTrue(output.contains("COLS=$expectedColumns"), "Unexpected PyArrow column count for ${file.name}: $output")
+        }
+    }
+
     @Test
     fun `test INT64 plain encoder roundtrip with various values`() {
         val encoder = PlainEncoder(ParquetType.INT64)
@@ -103,6 +127,7 @@ class Int64EncodingTest {
         val file = File(tempDir, "int64_roundtrip.parquet")
 
         com.molo17.parquetkt.core.ParquetFile.write(file, schema, listOf(rowGroup), CompressionCodec.UNCOMPRESSED)
+        assertPyArrowDecodes(file, expectedRows = testValues.size, expectedColumns = 2)
 
         val readRowGroups = com.molo17.parquetkt.core.ParquetFile.read(file)
 
@@ -139,6 +164,7 @@ class Int64EncodingTest {
         val file = File(tempDir, "int64_nullable.parquet")
 
         com.molo17.parquetkt.core.ParquetFile.write(file, schema, listOf(rowGroup), CompressionCodec.UNCOMPRESSED)
+        assertPyArrowDecodes(file, expectedRows = 3, expectedColumns = 2)
 
         val readRowGroups = com.molo17.parquetkt.core.ParquetFile.read(file)
 
@@ -186,6 +212,7 @@ class Int64EncodingTest {
             val file = File(tempDir, "int64_${codec.name.lowercase()}.parquet")
 
             com.molo17.parquetkt.core.ParquetFile.write(file, schema, listOf(rowGroup), codec)
+            assertPyArrowDecodes(file, expectedRows = testValues.size, expectedColumns = 1)
 
             val readRowGroups = com.molo17.parquetkt.core.ParquetFile.read(file)
             assertEquals(1, readRowGroups.size, "Failed for codec: $codec")
@@ -381,36 +408,30 @@ class Int64EncodingTest {
 
         com.molo17.parquetkt.core.ParquetFile.write(file, schema, listOf(rowGroup), CompressionCodec.SNAPPY)
 
-        // Try to read with PyArrow if available
-        try {
-            val process = ProcessBuilder(
-                "python3", "-c",
-                """
-                import pyarrow.parquet as pq
-                table = pq.read_table('${file.absolutePath}')
-                values = table.column('value').to_pylist()
-                expected = ${testValues}
+        val script = """
+            import sys
+            import pyarrow.parquet as pq
 
-                assert len(values) == len(expected), f"Size mismatch: {len(values)} vs {len(expected)}"
+            table = pq.read_table(sys.argv[1])
+            values = table.column('value').to_pylist()
+            expected = ${testValues}
 
-                for i, (actual, exp) in enumerate(zip(values, expected)):
-                    assert actual == exp, f"Mismatch at index {i}: {actual} != {exp}"
+            assert len(values) == len(expected), f"Size mismatch: {len(values)} vs {len(expected)}"
+            for i, (actual, exp) in enumerate(zip(values, expected)):
+                assert actual == exp, f"Mismatch at index {i}: {actual} != {exp}"
 
-                print("OK: All INT64 values match")
-                """.trimIndent()
-            ).redirectErrorStream(true).start()
+            print("OK: All INT64 values match")
+        """.trimIndent()
 
-            val output = process.inputStream.bufferedReader().readText().trim()
-            val exitCode = process.waitFor()
+        val process = ProcessBuilder("python3", "-c", script, file.absolutePath)
+            .redirectErrorStream(true)
+            .start()
 
-            if (exitCode == 0) {
-                println("✅ $output")
-            } else {
-                println("⚠️  PyArrow not available or test failed: $output")
-            }
-        } catch (e: Exception) {
-            println("⚠️  Could not run PyArrow test: ${e.message}")
-        }
+        val output = process.inputStream.bufferedReader().readText().trim()
+        val exitCode = process.waitFor()
+
+        assertEquals(0, exitCode, "PyArrow INT64 roundtrip check failed: $output")
+        assertTrue(output.contains("OK"), output)
     }
 
     @Test
@@ -433,6 +454,7 @@ class Int64EncodingTest {
 
         // Write using ParquetFile.write (the API the user was using)
         com.molo17.parquetkt.core.ParquetFile.write(file, schema, listOf(rowGroup), CompressionCodec.UNCOMPRESSED)
+        assertPyArrowDecodes(file, expectedRows = testValues.size, expectedColumns = 1)
 
         // Read back and verify metadata
         val reader = ParquetReader(file.absolutePath)
@@ -586,6 +608,7 @@ class Int64EncodingTest {
             listOf(rowGroup),
             CompressionCodec.SNAPPY
         )
+        assertPyArrowDecodes(file, expectedRows = rowCount, expectedColumns = 4)
 
         println("File size: ${file.length()} bytes")
 
