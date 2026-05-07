@@ -97,15 +97,33 @@ class DictionaryEncoder(private val type: ParquetType, private val typeLength: I
     fun encodeIndices(): ByteArray {
         val output = ByteArrayOutputStream()
         val writer = BinaryWriter(output)
-        
-        val bitWidth = calculateBitWidth(dictionary.size)
-        
+
+        // Keep dictionary index encoding strictly RLE (no bit-packed runs) for
+        // broad reader compatibility. This is valid Parquet hybrid encoding.
+        val bitWidth = calculateBitWidth(dictionary.size).coerceAtLeast(1)
+        val bytesPerValue = (bitWidth + 7) / 8
+
         writer.writeByte(bitWidth.toByte())
-        
-        val rleEncoder = RleEncoder(bitWidth)
-        val encodedIndices = rleEncoder.encode(indices.toIntArray())
-        writer.writeBytes(encodedIndices)
-        
+
+        var i = 0
+        while (i < indices.size) {
+            val value = indices[i]
+            var runLength = 1
+            while (i + runLength < indices.size && indices[i + runLength] == value) {
+                runLength++
+            }
+
+            // RLE run header: (runLength << 1) | 0
+            writer.writeVarInt(runLength shl 1)
+
+            // Value encoded in little-endian using ceil(bitWidth / 8) bytes.
+            for (b in 0 until bytesPerValue) {
+                writer.writeByte(((value ushr (b * 8)) and 0xFF).toByte())
+            }
+
+            i += runLength
+        }
+
         writer.flush()
         return output.toByteArray()
     }

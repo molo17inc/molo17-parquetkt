@@ -223,17 +223,26 @@ object ThriftSerializer {
         writer.writeVarLong(zigzagEncode(metadata.totalCompressedSize))
         lastFieldId = 7
         
-        // Field 8: statistics (struct) - optional
-        if (metadata.statistics != null) {
-            writeFieldBegin(writer, 8, lastFieldId, ThriftType.STRUCT)
-            serializeStatistics(writer, metadata.statistics)
-            lastFieldId = 8
-        }
-        
         // Field 9: data_page_offset (i64)
         writeFieldBegin(writer, 9, lastFieldId, ThriftType.I64)
         writer.writeVarLong(zigzagEncode(metadata.dataPageOffset))
-        
+        lastFieldId = 9
+
+        // Field 10: index_page_offset (i64) - optional (unused)
+
+        // Field 11: dictionary_page_offset (i64) - optional
+        if (metadata.dictionaryPageOffset != null) {
+            writeFieldBegin(writer, 11, lastFieldId, ThriftType.I64)
+            writer.writeVarLong(zigzagEncode(metadata.dictionaryPageOffset))
+            lastFieldId = 11
+        }
+
+        // Field 12: statistics (struct) - optional
+        if (metadata.statistics != null) {
+            writeFieldBegin(writer, 12, lastFieldId, ThriftType.STRUCT)
+            serializeStatistics(writer, metadata.statistics)
+        }
+
         // Stop field
         writer.writeByte(0)
     }
@@ -363,9 +372,17 @@ object ThriftSerializer {
             lastFieldId = 5
         }
         
-        // Field 7: data_page_header_v2 (DataPageHeaderV2) - optional, set for DATA_PAGE_V2 type
-        if (header.dataPageHeaderV2 != null) {
+        // Field 7: dictionary_page_header (DictionaryPageHeader) - optional, set for DICTIONARY_PAGE type
+        // Field 6 is index_page_header in parquet-format and intentionally omitted here.
+        if (header.dictionaryPageHeader != null) {
             writeFieldBegin(writer, 7, lastFieldId, ThriftType.STRUCT)
+            serializeDictionaryPageHeader(writer, header.dictionaryPageHeader)
+            lastFieldId = 7
+        }
+
+        // Field 8: data_page_header_v2 (DataPageHeaderV2) - optional, set for DATA_PAGE_V2 type
+        if (header.dataPageHeaderV2 != null) {
+            writeFieldBegin(writer, 8, lastFieldId, ThriftType.STRUCT)
             serializeDataPageHeaderV2(writer, header.dataPageHeaderV2)
         }
         
@@ -402,6 +419,27 @@ object ThriftSerializer {
         writer.writeByte(0)
     }
     
+    private fun serializeDictionaryPageHeader(writer: BinaryWriter, header: DictionaryPageHeader) {
+        var lastFieldId = 0
+
+        // Field 1: num_values (i32) - required
+        writeFieldBegin(writer, 1, lastFieldId, ThriftType.I32)
+        writer.writeVarInt(zigzagEncode(header.numValues))
+        lastFieldId = 1
+
+        // Field 2: encoding (i32) - required
+        writeFieldBegin(writer, 2, lastFieldId, ThriftType.I32)
+        writer.writeVarInt(zigzagEncode(header.encoding.thriftValue))
+
+        // Field 3: is_sorted (bool) - optional
+        if (header.isSorted != null) {
+            writeFieldBegin(writer, 3, 2, if (header.isSorted) ThriftType.TRUE else ThriftType.FALSE)
+        }
+
+        // Stop field
+        writer.writeByte(0)
+    }
+
     private fun serializeDataPageHeaderV2(writer: BinaryWriter, header: DataPageHeaderV2) {
         var lastFieldId = 0
         

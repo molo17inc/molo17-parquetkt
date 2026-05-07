@@ -102,17 +102,17 @@ class DictionaryEncodingCompatibilityTest {
                     encodings.contains(Encoding.RLE_DICTIONARY),
                     "String column $columnName should use RLE_DICTIONARY encoding"
                 )
-                
+
                 // Should have RLE for levels and RLE_DICTIONARY for data
                 assertTrue(
                     encodings.contains(Encoding.RLE),
                     "Column $columnName should have RLE encoding for definition levels"
                 )
-                
-                // Should NOT have PLAIN encoding when dictionary is used
-                assertFalse(
+
+                // Dictionary page values are PLAIN-encoded per Parquet spec
+                assertTrue(
                     encodings.contains(Encoding.PLAIN),
-                    "Column $columnName should not list PLAIN encoding when using dictionary"
+                    "Column $columnName should list PLAIN encoding for dictionary page values"
                 )
             }
             
@@ -172,16 +172,16 @@ class DictionaryEncodingCompatibilityTest {
         val stringColumns = fileMetadata.rowGroups.first().columns.filter {
             it.metaData.type == ParquetType.BYTE_ARRAY
         }
-        
+
         for (column in stringColumns) {
             assertTrue(
                 column.metaData.encodings.contains(Encoding.RLE_DICTIONARY),
                 "String columns should use dictionary encoding for repetitive data"
             )
         }
-        
+
         reader.close()
-        
+
         println("✅ Dictionary encoding is being used for repetitive data")
     }
     

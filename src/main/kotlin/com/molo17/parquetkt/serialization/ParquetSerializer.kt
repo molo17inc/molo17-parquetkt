@@ -183,7 +183,7 @@ class ParquetSerializer<T : Any>(
             logicalType = elementField.logicalType ?: LogicalType.NONE,
             repetition = if (isPropertyNullable) Repetition.OPTIONAL else Repetition.REQUIRED,
             maxRepetitionLevel = 1,
-            maxDefinitionLevel = if (isPropertyNullable) 3 else 1
+            maxDefinitionLevel = if (isPropertyNullable) 3 else 2
         )
         
         // Store the flattened values in the data array

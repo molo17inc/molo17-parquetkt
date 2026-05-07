@@ -23,10 +23,12 @@ import java.io.InputStream
 import com.molo17.parquetkt.data.DataColumn
 import com.molo17.parquetkt.data.RowGroup
 import com.molo17.parquetkt.encoding.DictionaryDecoder
+import com.molo17.parquetkt.encoding.LevelEncoder
 import com.molo17.parquetkt.encoding.PlainDecoder
 import com.molo17.parquetkt.encoding.RleDecoder
 import com.molo17.parquetkt.format.BinaryReader
 import com.molo17.parquetkt.format.ParquetConstants
+import com.molo17.parquetkt.schema.DataField
 import com.molo17.parquetkt.schema.Encoding
 import com.molo17.parquetkt.schema.ParquetSchema
 import com.molo17.parquetkt.schema.SchemaConverter
@@ -157,7 +159,8 @@ class ParquetReader(
         }
     }
     
-    private var fileMetadata: FileMetaData? = null
+    var fileMetadata: FileMetaData? = null
+        private set
     
     private fun readRowGroupColumns(index: Int): List<DataColumn<*>> {
         initialize()
@@ -169,14 +172,18 @@ class ParquetReader(
         for (i in 0 until schema.fieldCount) {
             val field = schema.getField(i)
             val columnChunk = rowGroupMeta.columns[i]
-            val column = readColumnChunk(columnChunk, field)
+            val column = try {
+                readColumnChunk(columnChunk, field)
+            } catch (e: Exception) {
+                throw IllegalStateException("Failed reading column '${field.name}' at index $i", e)
+            }
             columns.add(column)
         }
         
         return columns
     }
     
-    private fun readColumnChunk(columnChunk: ColumnChunk, field: com.molo17.parquetkt.schema.DataField): DataColumn<*> {
+    private fun readColumnChunk(columnChunk: ColumnChunk, field: DataField): DataColumn<*> {
         val metadata = columnChunk.metaData
         
         // Check if dictionary encoding is used
@@ -225,15 +232,29 @@ class ParquetReader(
             // Read repetition level length
             val repLevelLength = reader.readInt32()
             position += 4
-            
+
             // Read and decode repetition levels
             val repLevelBytes = reader.readBytes(repLevelLength)
             position += repLevelLength
-            
-            repetitionLevels = com.molo17.parquetkt.encoding.LevelEncoder.decodeLevels(
-                repLevelBytes, 
-                metadata.numValues.toInt()
-            ).toIntArray()
+
+            val expectedCount = metadata.numValues.toInt()
+            val maxRepLevel = maxOf(1, field.maxRepetitionLevel)
+            val bitWidth = LevelEncoder.getMaxBitWidth(maxRepLevel)
+
+            val rleDecoded = try {
+                RleDecoder(bitWidth).decode(repLevelBytes, expectedCount)
+            } catch (_: Exception) {
+                IntArray(0)
+            }
+
+            repetitionLevels = if (rleDecoded.size == expectedCount) {
+                rleDecoded
+            } else {
+                LevelEncoder.decodeLevels(
+                    repLevelBytes,
+                    expectedCount
+                ).toIntArray()
+            }
         }
         
         // Read definition levels if nullable or has nested structure
@@ -244,23 +265,31 @@ class ParquetReader(
             // Read definition level length
             val defLevelLength = reader.readInt32()
             position += 4
-            
+
             // Read definition level data
             val defLevelBytes = reader.readBytes(defLevelLength)
             position += defLevelLength
-            
-            // Try LevelEncoder first (for nested types), fall back to RLE
-            definitionLevels = try {
-                com.molo17.parquetkt.encoding.LevelEncoder.decodeLevels(
-                    defLevelBytes,
-                    metadata.numValues.toInt()
-                ).toIntArray()
-            } catch (e: Exception) {
-                // Fall back to RLE decoder for backward compatibility
-                val rleDecoder = RleDecoder(1)
-                rleDecoder.decode(defLevelBytes, metadata.numValues.toInt())
+
+            val expectedCount = metadata.numValues.toInt()
+            val maxDefLevel = maxOf(1, field.maxDefinitionLevel)
+
+            // Compatibility note:
+            // - standard Parquet uses RLE/bit-packed for def/rep levels
+            // - older ParquetKt files may contain LevelEncoder varint levels
+            // Try RLE first, then fall back to LevelEncoder if shape is invalid.
+            val bitWidth = LevelEncoder.getMaxBitWidth(maxDefLevel)
+            val rleDecoded = try {
+                RleDecoder(bitWidth).decode(defLevelBytes, expectedCount)
+            } catch (_: Exception) {
+                IntArray(0)
             }
-            
+
+            definitionLevels = if (rleDecoded.size == expectedCount) {
+                rleDecoded
+            } else {
+                LevelEncoder.decodeLevels(defLevelBytes, expectedCount).toIntArray()
+            }
+
             // Count non-null values
             // For list columns (with repetition levels), definition level at max means value is present
             // For simple nullable columns, definition level > 0 means value is present

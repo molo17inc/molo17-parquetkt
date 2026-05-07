@@ -22,34 +22,176 @@ import com.molo17.parquetkt.thrift.FieldRepetitionType
 import com.molo17.parquetkt.thrift.SchemaElement
 
 object SchemaConverter {
-    
+
     fun toThriftSchema(schema: ParquetSchema): List<SchemaElement> {
         val elements = mutableListOf<SchemaElement>()
-        
+
         // Root element
-        elements.add(SchemaElement(
-            name = "schema",
-            numChildren = schema.fieldCount,
-            repetitionType = null,
-            type = null
-        ))
-        
-        // Add field elements
+        elements.add(
+            SchemaElement(
+                name = "schema",
+                numChildren = schema.fieldCount,
+                repetitionType = null,
+                type = null
+            )
+        )
+
         schema.fields.forEach { field ->
-            elements.add(toThriftSchemaElement(field))
+            if (isListLikeField(field)) {
+                addListFieldSchema(field, elements)
+            } else {
+                elements.add(toThriftSchemaElement(field))
+            }
         }
-        
+
         return elements
     }
-    
+
     fun fromThriftSchema(elements: List<SchemaElement>): ParquetSchema {
         require(elements.isNotEmpty()) { "Schema elements cannot be empty" }
         require(elements[0].name == "schema") { "First element must be root schema" }
-        
-        val fields = elements.drop(1).map { fromThriftSchemaElement(it) }
+
+        val root = elements[0]
+        val topLevelCount = root.numChildren ?: 0
+        val fields = mutableListOf<DataField>()
+        var index = 1
+
+        repeat(topLevelCount) {
+            if (index >= elements.size) return@repeat
+
+            val element = elements[index]
+            val childCount = element.numChildren ?: 0
+
+            if (childCount == 0) {
+                fields.add(fromThriftSchemaElement(element))
+                index++
+            } else if (isListGroup(element)) {
+                val (listField, nextIndex) = parseListField(elements, index)
+                fields.add(listField)
+                index = nextIndex
+            } else {
+                val (firstPrimitive, nextIndex) = findFirstPrimitiveAndNextIndex(elements, index)
+                if (firstPrimitive != null) {
+                    fields.add(fromThriftSchemaElement(firstPrimitive).copy(name = element.name))
+                }
+                index = nextIndex
+            }
+        }
+
         return ParquetSchema.create(fields)
     }
-    
+
+    private fun isListLikeField(field: DataField): Boolean {
+        return field.repetition == Repetition.REPEATED &&
+            field.maxRepetitionLevel > 0 &&
+            field.maxDefinitionLevel >= 2
+    }
+
+    private fun addListFieldSchema(field: DataField, elements: MutableList<SchemaElement>) {
+        val isNullableList = field.maxDefinitionLevel >= 3
+
+        elements.add(
+            SchemaElement(
+                name = field.name,
+                numChildren = 1,
+                repetitionType = if (isNullableList) FieldRepetitionType.OPTIONAL else FieldRepetitionType.REQUIRED,
+                type = null,
+                convertedType = ConvertedType.LIST,
+                logicalType = com.molo17.parquetkt.thrift.LogicalTypeAnnotation.List
+            )
+        )
+
+        elements.add(
+            SchemaElement(
+                name = "list",
+                numChildren = 1,
+                repetitionType = FieldRepetitionType.REPEATED,
+                type = null
+            )
+        )
+
+        elements.add(
+            SchemaElement(
+                type = field.dataType,
+                typeLength = field.length,
+                repetitionType = FieldRepetitionType.OPTIONAL,
+                name = "element",
+                numChildren = null,
+                convertedType = toConvertedType(field.logicalType),
+                scale = field.scale,
+                precision = field.precision,
+                fieldId = null,
+                logicalType = toLogicalTypeAnnotation(field.logicalType, field.precision, field.scale)
+            )
+        )
+    }
+
+    private fun isListGroup(element: SchemaElement): Boolean {
+        return element.convertedType == ConvertedType.LIST ||
+            element.logicalType == com.molo17.parquetkt.thrift.LogicalTypeAnnotation.List
+    }
+
+    private fun parseListField(elements: List<SchemaElement>, listGroupIndex: Int): Pair<DataField, Int> {
+        val listGroup = elements[listGroupIndex]
+        val childCount = listGroup.numChildren ?: 0
+
+        var index = listGroupIndex + 1
+        var firstPrimitive: SchemaElement? = null
+
+        repeat(childCount) {
+            if (index >= elements.size) return@repeat
+            val (primitive, nextIndex) = findFirstPrimitiveAndNextIndex(elements, index)
+            if (firstPrimitive == null) firstPrimitive = primitive
+            index = nextIndex
+        }
+
+        val element = firstPrimitive
+            ?: throw IllegalArgumentException("Invalid LIST schema for '${listGroup.name}': missing element field")
+
+        val outerOptional = listGroup.repetitionType == FieldRepetitionType.OPTIONAL
+        val elementOptional = element.repetitionType == FieldRepetitionType.OPTIONAL
+        val maxDefLevel = (if (outerOptional) 1 else 0) + 1 + (if (elementOptional) 1 else 0)
+
+        val field = DataField(
+            name = listGroup.name,
+            dataType = element.type ?: throw IllegalArgumentException("LIST element type is required"),
+            logicalType = fromConvertedType(element.convertedType),
+            repetition = Repetition.REPEATED,
+            maxRepetitionLevel = 1,
+            maxDefinitionLevel = maxDefLevel,
+            length = element.typeLength,
+            precision = element.precision,
+            scale = element.scale
+        )
+
+        return field to index
+    }
+
+    private fun findFirstPrimitiveAndNextIndex(
+        elements: List<SchemaElement>,
+        startIndex: Int
+    ): Pair<SchemaElement?, Int> {
+        if (startIndex >= elements.size) return null to startIndex
+
+        val element = elements[startIndex]
+        val childCount = element.numChildren ?: 0
+        if (childCount == 0) {
+            return element to (startIndex + 1)
+        }
+
+        var index = startIndex + 1
+        var firstPrimitive: SchemaElement? = null
+
+        repeat(childCount) {
+            if (index >= elements.size) return@repeat
+            val (primitive, nextIndex) = findFirstPrimitiveAndNextIndex(elements, index)
+            if (firstPrimitive == null) firstPrimitive = primitive
+            index = nextIndex
+        }
+
+        return firstPrimitive to index
+    }
+
     private fun toThriftSchemaElement(field: DataField): SchemaElement {
         return SchemaElement(
             type = field.dataType,
@@ -68,7 +210,7 @@ object SchemaConverter {
             logicalType = toLogicalTypeAnnotation(field.logicalType, field.precision, field.scale)
         )
     }
-    
+
     private fun fromThriftSchemaElement(element: SchemaElement): DataField {
         val repetition = when (element.repetitionType) {
             FieldRepetitionType.REQUIRED -> Repetition.REQUIRED
@@ -76,16 +218,15 @@ object SchemaConverter {
             FieldRepetitionType.REPEATED -> Repetition.REPEATED
             null -> Repetition.REQUIRED
         }
-        
-        // Calculate max levels based on repetition type
-        // For REPEATED fields, we assume they're lists with the standard 3-level structure
+
+        // Keep backward compatibility for legacy repeated primitive list encoding.
         val maxRepetitionLevel = if (repetition == Repetition.REPEATED) 1 else 0
         val maxDefinitionLevel = when (repetition) {
             Repetition.OPTIONAL -> 1
-            Repetition.REPEATED -> 2 // For lists: 0=null list, 1=empty list, 2=element present
+            Repetition.REPEATED -> 2
             Repetition.REQUIRED -> 0
         }
-        
+
         return DataField(
             name = element.name,
             dataType = element.type ?: throw IllegalArgumentException("Type is required"),
@@ -98,7 +239,7 @@ object SchemaConverter {
             scale = element.scale
         )
     }
-    
+
     private fun toConvertedType(logicalType: LogicalType): ConvertedType? {
         return when (logicalType) {
             LogicalType.NONE -> null
@@ -126,7 +267,7 @@ object SchemaConverter {
             LogicalType.INTERVAL -> ConvertedType.INTERVAL
         }
     }
-    
+
     private fun fromConvertedType(convertedType: ConvertedType?): LogicalType {
         return when (convertedType) {
             null -> LogicalType.NONE
@@ -152,8 +293,12 @@ object SchemaConverter {
             ConvertedType.MAP, ConvertedType.MAP_KEY_VALUE, ConvertedType.LIST -> LogicalType.NONE
         }
     }
-    
-    private fun toLogicalTypeAnnotation(logicalType: LogicalType, precision: Int?, scale: Int?): com.molo17.parquetkt.thrift.LogicalTypeAnnotation? {
+
+    private fun toLogicalTypeAnnotation(
+        logicalType: LogicalType,
+        precision: Int?,
+        scale: Int?
+    ): com.molo17.parquetkt.thrift.LogicalTypeAnnotation? {
         return when (logicalType) {
             LogicalType.NONE -> null
             LogicalType.STRING -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.String
@@ -165,7 +310,9 @@ object SchemaConverter {
             LogicalType.DECIMAL -> {
                 if (precision != null && scale != null) {
                     com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Decimal(precision, scale)
-                } else null
+                } else {
+                    null
+                }
             }
             LogicalType.TIME_MILLIS -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Time(
                 isAdjustedToUTC = true,
@@ -193,7 +340,7 @@ object SchemaConverter {
             LogicalType.INT_64 -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Integer(64, true)
             LogicalType.LIST -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.List
             LogicalType.MAP -> com.molo17.parquetkt.thrift.LogicalTypeAnnotation.Map
-            LogicalType.INTERVAL -> null // INTERVAL doesn't have a modern LogicalType representation
+            LogicalType.INTERVAL -> null
         }
     }
 }

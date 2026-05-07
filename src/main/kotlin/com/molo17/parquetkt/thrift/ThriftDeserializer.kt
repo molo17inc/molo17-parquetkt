@@ -373,6 +373,7 @@ object ThriftDeserializer {
         var totalUncompressedSize = 0L
         var totalCompressedSize = 0L
         var dataPageOffset = 0L
+        var dictionaryPageOffset: Long? = null
         var statistics: Statistics? = null
         
         var lastFieldId = 0
@@ -399,8 +400,9 @@ object ThriftDeserializer {
                 5 -> numValues = reader.readInt64Zigzag()
                 6 -> totalUncompressedSize = reader.readInt64Zigzag()
                 7 -> totalCompressedSize = reader.readInt64Zigzag()
-                8 -> statistics = readStatistics(reader)
                 9 -> dataPageOffset = reader.readInt64Zigzag()
+                11 -> dictionaryPageOffset = reader.readInt64Zigzag()
+                12 -> statistics = readStatistics(reader)
                 else -> skipField(reader, fieldType)
             }
         }
@@ -414,6 +416,7 @@ object ThriftDeserializer {
             totalUncompressedSize = totalUncompressedSize,
             totalCompressedSize = totalCompressedSize,
             dataPageOffset = dataPageOffset,
+            dictionaryPageOffset = dictionaryPageOffset,
             statistics = statistics
         )
     }

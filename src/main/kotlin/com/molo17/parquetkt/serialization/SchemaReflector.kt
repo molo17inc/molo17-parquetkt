@@ -124,14 +124,14 @@ object SchemaReflector {
         
         // For lists, set maxRepetitionLevel=1 and maxDefinitionLevel based on nullability
         // For nullable list: Level 0=null list, 1=empty list, 2=null element, 3=element present
-        // For non-nullable list: Level 0=empty list, 1=element present
+        // For non-nullable list: Level 0=empty list, 1=null element, 2=element present
         return DataField(
             name = name,
             dataType = dataType,
             logicalType = logicalType,
             repetition = com.molo17.parquetkt.schema.Repetition.REPEATED,
             maxRepetitionLevel = 1,
-            maxDefinitionLevel = if (nullable) 3 else 1
+            maxDefinitionLevel = if (nullable) 3 else 2
         )
     }
     
