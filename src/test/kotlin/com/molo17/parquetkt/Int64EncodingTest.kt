@@ -94,6 +94,12 @@ class Int64EncodingTest {
         val decoded = decoder.decode(encoded, testValues.size) as Array<Long>
 
         assertContentEquals(testValues.toList(), decoded.toList())
+
+        val schema = ParquetSchema.create(DataField.int64("value"))
+        val column = DataColumn.createRequired(DataField.int64("value"), testValues.toList())
+        val file = File(tempDir, "int64_plain_encoder_roundtrip.parquet")
+        com.molo17.parquetkt.core.ParquetFile.write(file, schema, listOf(RowGroup(schema, listOf(column))), CompressionCodec.UNCOMPRESSED)
+        assertPyArrowDecodes(file, expectedRows = testValues.size, expectedColumns = 1)
     }
 
     @Test
@@ -358,6 +364,12 @@ class Int64EncodingTest {
             val valueLong = value as Long
             assertEquals(valueLong, decoded[0], "Failed for value: 0x${java.lang.Long.toHexString(valueLong)} ($valueLong)")
         }
+
+        val schema = ParquetSchema.create(DataField.int64("value"))
+        val column = DataColumn.createRequired(DataField.int64("value"), problematicValues)
+        val file = File(tempDir, "int64_problematic_values.parquet")
+        com.molo17.parquetkt.core.ParquetFile.write(file, schema, listOf(RowGroup(schema, listOf(column))), CompressionCodec.UNCOMPRESSED)
+        assertPyArrowDecodes(file, expectedRows = problematicValues.size, expectedColumns = 1)
     }
 
     @Test
@@ -380,6 +392,12 @@ class Int64EncodingTest {
         assertEquals(0x03, encoded[5].toInt() and 0xFF, "Byte 5 should be 0x03")
         assertEquals(0x02, encoded[6].toInt() and 0xFF, "Byte 6 should be 0x02")
         assertEquals(0x01, encoded[7].toInt() and 0xFF, "Byte 7 should be 0x01")
+
+        val schema = ParquetSchema.create(DataField.int64("value"))
+        val column = DataColumn.createRequired(DataField.int64("value"), listOf(value))
+        val file = File(tempDir, "int64_byte_order_consistency.parquet")
+        com.molo17.parquetkt.core.ParquetFile.write(file, schema, listOf(RowGroup(schema, listOf(column))), CompressionCodec.UNCOMPRESSED)
+        assertPyArrowDecodes(file, expectedRows = 1, expectedColumns = 1)
     }
 
     @Test
