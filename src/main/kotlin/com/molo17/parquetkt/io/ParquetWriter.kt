@@ -347,6 +347,8 @@ class ParquetWriter(
             hasDictionary = dictionaryPageData != null
         )
         
+        var dictionaryPageSizeWithHeader = 0L
+
         // Write dictionary page if present
         if (dictionaryPageData != null) {
             val dictPageHeader = DictionaryPageHeader(
@@ -363,6 +365,7 @@ class ParquetWriter(
             currentOffset += dictPageHeaderBytes.size
             writer.writeBytes(dictionaryPageData.data)
             currentOffset += dictionaryPageData.data.size
+            dictionaryPageSizeWithHeader = dictPageHeaderBytes.size.toLong() + dictionaryPageData.data.size
         }
         
         val numValues = column.definitionLevels?.size ?: column.size
@@ -394,9 +397,11 @@ class ParquetWriter(
         
         val totalSize = currentOffset - startOffset
         
-        // total_compressed_size should include the page header size
-        val totalCompressedSizeWithHeader = pageHeaderBytes.size.toLong() + totalCompressedSize
-        
+        val dataPageCompressedSizeWithHeader = pageHeaderBytes.size.toLong() + totalCompressedSize
+        val dataPageUncompressedSizeWithHeader = pageHeaderBytes.size.toLong() + totalUncompressedSize
+        val totalCompressedSizeWithHeader = dictionaryPageSizeWithHeader + dataPageCompressedSizeWithHeader
+        val totalUncompressedSizeWithHeader = dictionaryPageSizeWithHeader + dataPageUncompressedSizeWithHeader
+
         val encodings = mutableListOf(Encoding.RLE)
         if (dictionaryPageData != null) {
             encodings.add(Encoding.RLE_DICTIONARY)
@@ -410,7 +415,7 @@ class ParquetWriter(
             pathInSchema = listOf(field.name),
             codec = compressionCodec,
             numValues = numValues.toLong(),
-            totalUncompressedSize = totalUncompressedSize.toLong(),
+            totalUncompressedSize = totalUncompressedSizeWithHeader,
             totalCompressedSize = totalCompressedSizeWithHeader,
             dataPageOffset = if (dictionaryPageData != null) currentOffset - (pageHeaderBytes.size + totalCompressedSize) else dataPageOffset,
             dictionaryPageOffset = if (dictionaryPageData != null) startOffset else null
@@ -525,6 +530,8 @@ class ParquetWriter(
         val dictionaryPageOffset: Long?
         val dataPageOffset: Long
         
+        var dictionaryPageSizeWithHeader = 0L
+
         // Write dictionary page if present (MUST be before data page)
         if (preparedData.dictionaryPageData != null) {
             dictionaryPageOffset = currentOffset
@@ -543,6 +550,7 @@ class ParquetWriter(
             currentOffset += dictPageHeaderBytes.size
             writer.writeBytes(preparedData.dictionaryPageData.data)
             currentOffset += preparedData.dictionaryPageData.data.size
+            dictionaryPageSizeWithHeader = dictPageHeaderBytes.size.toLong() + preparedData.dictionaryPageData.data.size
         } else {
             dictionaryPageOffset = null
         }
@@ -576,8 +584,11 @@ class ParquetWriter(
         writer.flush()
         
         val totalSize = currentOffset - startOffset
-        val totalCompressedSizeWithHeader = pageHeaderBytes.size.toLong() + preparedData.compressedData.size
-        
+        val dataPageCompressedSizeWithHeader = pageHeaderBytes.size.toLong() + preparedData.compressedData.size
+        val dataPageUncompressedSizeWithHeader = pageHeaderBytes.size.toLong() + preparedData.uncompressedSize
+        val totalCompressedSizeWithHeader = dictionaryPageSizeWithHeader + dataPageCompressedSizeWithHeader
+        val totalUncompressedSizeWithHeader = dictionaryPageSizeWithHeader + dataPageUncompressedSizeWithHeader
+
         val encodings = mutableListOf(Encoding.RLE)
         if (preparedData.dictionaryPageData != null) {
             encodings.add(Encoding.RLE_DICTIONARY)
@@ -591,7 +602,7 @@ class ParquetWriter(
             pathInSchema = listOf(field.name),
             codec = compressionCodec,
             numValues = preparedData.columnSize.toLong(),
-            totalUncompressedSize = preparedData.uncompressedSize.toLong(),
+            totalUncompressedSize = totalUncompressedSizeWithHeader,
             totalCompressedSize = totalCompressedSizeWithHeader,
             dataPageOffset = dataPageOffset,
             dictionaryPageOffset = dictionaryPageOffset,
@@ -713,6 +724,7 @@ class ParquetWriter(
             throw IllegalStateException(diagnostic)
         }
     }
+
 
     private fun checkNotClosed() {
         check(!isClosed) { "ParquetWriter is closed" }
