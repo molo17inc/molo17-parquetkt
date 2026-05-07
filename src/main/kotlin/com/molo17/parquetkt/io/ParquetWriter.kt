@@ -365,9 +365,11 @@ class ParquetWriter(
             currentOffset += dictionaryPageData.data.size
         }
         
+        val numValues = column.definitionLevels?.size ?: column.size
+
         // Write DATA_PAGE (V1) header
         val pageHeader = DataPageHeader(
-            numValues = column.size,
+            numValues = numValues,
             encoding = encoding,
             definitionLevelEncoding = Encoding.RLE,
             repetitionLevelEncoding = Encoding.RLE
@@ -407,7 +409,7 @@ class ParquetWriter(
             encodings = encodings,
             pathInSchema = listOf(field.name),
             codec = compressionCodec,
-            numValues = column.size.toLong(),
+            numValues = numValues.toLong(),
             totalUncompressedSize = totalUncompressedSize.toLong(),
             totalCompressedSize = totalCompressedSizeWithHeader,
             dataPageOffset = if (dictionaryPageData != null) currentOffset - (pageHeaderBytes.size + totalCompressedSize) else dataPageOffset,
@@ -508,7 +510,7 @@ class ParquetWriter(
             uncompressedSize = uncompressedPageData.size,
             encoding = encoding,
             dictionaryPageData = dictionaryPageData,
-            columnSize = column.size,
+            columnSize = column.definitionLevels?.size ?: column.size,
             statistics = statistics
         )
     }

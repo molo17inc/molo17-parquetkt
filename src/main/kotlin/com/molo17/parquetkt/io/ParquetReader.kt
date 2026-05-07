@@ -247,10 +247,7 @@ class ParquetReader(
                 IntArray(0)
             }
 
-            repetitionLevels = if (
-                rleDecoded.size == expectedCount &&
-                rleDecoded.all { it in 0..maxRepLevel }
-            ) {
+            repetitionLevels = if (rleDecoded.size == expectedCount) {
                 rleDecoded
             } else {
                 LevelEncoder.decodeLevels(
@@ -287,10 +284,7 @@ class ParquetReader(
                 IntArray(0)
             }
 
-            definitionLevels = if (
-                rleDecoded.size == expectedCount &&
-                rleDecoded.all { it in 0..maxDefLevel }
-            ) {
+            definitionLevels = if (rleDecoded.size == expectedCount) {
                 rleDecoded
             } else {
                 LevelEncoder.decodeLevels(defLevelBytes, expectedCount).toIntArray()

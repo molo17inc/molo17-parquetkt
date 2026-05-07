@@ -104,18 +104,21 @@ class RleEncoder(private val bitWidth: Int) {
     private fun writeBitPackedGroup(writer: BinaryWriter, values: IntArray, start: Int, end: Int) {
         var buffer = 0L
         var bitsWritten = 0
-        
-        for (i in start until end) {
-            buffer = buffer or (values[i].toLong() shl bitsWritten)
+
+        // A bit-packed group is always 8 values in Parquet's RLE/bit-pack hybrid format.
+        // Pad missing tail values with zeros for incomplete final groups.
+        repeat(8) { idx ->
+            val value = if (start + idx < end) values[start + idx] else 0
+            buffer = buffer or (value.toLong() shl bitsWritten)
             bitsWritten += bitWidth
-            
+
             while (bitsWritten >= 8) {
                 writer.writeByte((buffer and 0xFF).toByte())
                 buffer = buffer ushr 8
                 bitsWritten -= 8
             }
         }
-        
+
         if (bitsWritten > 0) {
             writer.writeByte((buffer and 0xFF).toByte())
         }
