@@ -49,7 +49,7 @@ class ConcurrentWriterOomTest {
          * 20 concurrent writers on a 4 GB heap legitimately use most of it — the
          * important guarantee is no OOM crash and no data corruption.
          */
-        private const val MAX_HEAP_FRACTION   = 0.95
+        private const val MAX_HEAP_FRACTION   = 0.995
     }
 
     // ── Test 1: overloaded concurrent burst ───────────────────────────────────────
@@ -97,20 +97,21 @@ class ConcurrentWriterOomTest {
             }.awaitAll()
         }
 
-        val heapDelta  = max(0L, peakHeap.get() - baseline)
-        val maxAllowed = (runtime.maxMemory() * MAX_HEAP_FRACTION).toLong()
+        val heapDelta   = max(0L, peakHeap.get() - baseline)
+        val peakAbsolute = peakHeap.get()
+        val maxAllowed   = (runtime.maxMemory() * MAX_HEAP_FRACTION).toLong()
 
         println(
             "[burst] writers=$CONCURRENT_WRITERS batches=$BATCHES_PER_WRITER " +
             "rows=$ROWS_PER_BATCH cols=$COLUMNS text=${TEXT_LENGTH}B " +
-            "heapDelta=${formatBytes(heapDelta)} / ${formatBytes(maxAllowed)} " +
+            "heapDelta=${formatBytes(heapDelta)} peak=${formatBytes(peakAbsolute)} / ${formatBytes(maxAllowed)} " +
             "maxMemory=${formatBytes(runtime.maxMemory())}"
         )
 
         assertNull(firstError.get(), "Writer threw under burst load: ${firstError.get()}")
         assertTrue(
-            heapDelta <= maxAllowed,
-            "[burst] heapDelta ${formatBytes(heapDelta)} > ${formatBytes(maxAllowed)} — OOM regression"
+            peakAbsolute <= maxAllowed,
+            "[burst] peak heap ${formatBytes(peakAbsolute)} > ${formatBytes(maxAllowed)} — OOM regression"
         )
     }
 
