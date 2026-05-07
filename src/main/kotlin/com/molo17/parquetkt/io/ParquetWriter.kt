@@ -412,7 +412,7 @@ class ParquetWriter(
         val columnMetadata = ColumnMetaData(
             type = field.dataType,
             encodings = encodings,
-            pathInSchema = listOf(field.name),
+            pathInSchema = columnPathInSchema(field),
             codec = compressionCodec,
             numValues = numValues.toLong(),
             totalUncompressedSize = totalUncompressedSizeWithHeader,
@@ -599,7 +599,7 @@ class ParquetWriter(
         val columnMetadata = ColumnMetaData(
             type = field.dataType,
             encodings = encodings,
-            pathInSchema = listOf(field.name),
+            pathInSchema = columnPathInSchema(field),
             codec = compressionCodec,
             numValues = preparedData.columnSize.toLong(),
             totalUncompressedSize = totalUncompressedSizeWithHeader,
@@ -722,6 +722,15 @@ class ParquetWriter(
             }
             System.err.println(diagnostic)
             throw IllegalStateException(diagnostic)
+        }
+    }
+
+
+    private fun columnPathInSchema(field: DataField): List<String> {
+        return if (field.repetition == Repetition.REPEATED && field.maxRepetitionLevel > 0 && field.maxDefinitionLevel >= 2) {
+            listOf(field.name, "list", "element")
+        } else {
+            listOf(field.name)
         }
     }
 
