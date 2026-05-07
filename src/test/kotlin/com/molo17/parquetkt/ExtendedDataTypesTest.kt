@@ -96,7 +96,8 @@ class ExtendedDataTypesTest {
             DataField(
                 name = "uuid_col",
                 dataType = ParquetType.FIXED_LEN_BYTE_ARRAY,
-                repetition = com.molo17.parquetkt.schema.Repetition.REQUIRED
+                repetition = com.molo17.parquetkt.schema.Repetition.REQUIRED,
+                length = 16
             )
         )
         
@@ -109,7 +110,8 @@ class ExtendedDataTypesTest {
             DataField(
                 name = "uuid_col",
                 dataType = ParquetType.FIXED_LEN_BYTE_ARRAY,
-                repetition = com.molo17.parquetkt.schema.Repetition.REQUIRED
+                repetition = com.molo17.parquetkt.schema.Repetition.REQUIRED,
+                length = 16
             ),
             listOf(uuid1, uuid2, uuid3)
         )
@@ -211,7 +213,8 @@ class ExtendedDataTypesTest {
             DataField(
                 name = "fixed_col",
                 dataType = ParquetType.FIXED_LEN_BYTE_ARRAY,
-                repetition = com.molo17.parquetkt.schema.Repetition.REQUIRED
+                repetition = com.molo17.parquetkt.schema.Repetition.REQUIRED,
+                length = 16
             ),
             DataField.date("date_col"),
             DataField.timestamp("timestamp_col")
@@ -233,7 +236,8 @@ class ExtendedDataTypesTest {
             DataField(
                 name = "fixed_col",
                 dataType = ParquetType.FIXED_LEN_BYTE_ARRAY,
-                repetition = com.molo17.parquetkt.schema.Repetition.REQUIRED
+                repetition = com.molo17.parquetkt.schema.Repetition.REQUIRED,
+                length = 16
             ),
             listOf(
                 ByteArray(16) { it.toByte() },
