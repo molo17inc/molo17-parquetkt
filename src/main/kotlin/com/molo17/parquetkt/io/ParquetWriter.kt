@@ -351,6 +351,9 @@ class ParquetWriter(
 
         // Write dictionary page if present
         if (dictionaryPageData != null) {
+            val compressor = CompressionCodecFactory.getCompressor(compressionCodec)
+            val compressedDictionaryData = compressor.compress(dictionaryPageData.data)
+
             val dictPageHeader = DictionaryPageHeader(
                 numValues = dictionaryPageData.numValues,
                 encoding = Encoding.PLAIN
@@ -358,14 +361,14 @@ class ParquetWriter(
             val dictPageHeaderBytes = serializePageHeader(PageHeader(
                 type = PageType.DICTIONARY_PAGE,
                 uncompressedPageSize = dictionaryPageData.data.size,
-                compressedPageSize = dictionaryPageData.data.size,
+                compressedPageSize = compressedDictionaryData.size,
                 dictionaryPageHeader = dictPageHeader
             ))
             writer.writeBytes(dictPageHeaderBytes)
             currentOffset += dictPageHeaderBytes.size
-            writer.writeBytes(dictionaryPageData.data)
-            currentOffset += dictionaryPageData.data.size
-            dictionaryPageSizeWithHeader = dictPageHeaderBytes.size.toLong() + dictionaryPageData.data.size
+            writer.writeBytes(compressedDictionaryData)
+            currentOffset += compressedDictionaryData.size
+            dictionaryPageSizeWithHeader = dictPageHeaderBytes.size.toLong() + compressedDictionaryData.size
         }
         
         val numValues = column.definitionLevels?.size ?: column.size
@@ -404,6 +407,9 @@ class ParquetWriter(
 
         val encodings = mutableListOf(Encoding.RLE)
         if (dictionaryPageData != null) {
+            // Dictionary-encoded chunks use PLAIN for dictionary page values and
+            // RLE_DICTIONARY for data page indices.
+            encodings.add(Encoding.PLAIN)
             encodings.add(Encoding.RLE_DICTIONARY)
         } else {
             encodings.add(encoding)
@@ -535,7 +541,10 @@ class ParquetWriter(
         // Write dictionary page if present (MUST be before data page)
         if (preparedData.dictionaryPageData != null) {
             dictionaryPageOffset = currentOffset
-            
+
+            val compressor = CompressionCodecFactory.getCompressor(compressionCodec)
+            val compressedDictionaryData = compressor.compress(preparedData.dictionaryPageData.data)
+
             val dictPageHeader = DictionaryPageHeader(
                 numValues = preparedData.dictionaryPageData.numValues,
                 encoding = Encoding.PLAIN
@@ -543,14 +552,14 @@ class ParquetWriter(
             val dictPageHeaderBytes = serializePageHeader(PageHeader(
                 type = PageType.DICTIONARY_PAGE,
                 uncompressedPageSize = preparedData.dictionaryPageData.data.size,
-                compressedPageSize = preparedData.dictionaryPageData.data.size,
+                compressedPageSize = compressedDictionaryData.size,
                 dictionaryPageHeader = dictPageHeader
             ))
             writer.writeBytes(dictPageHeaderBytes)
             currentOffset += dictPageHeaderBytes.size
-            writer.writeBytes(preparedData.dictionaryPageData.data)
-            currentOffset += preparedData.dictionaryPageData.data.size
-            dictionaryPageSizeWithHeader = dictPageHeaderBytes.size.toLong() + preparedData.dictionaryPageData.data.size
+            writer.writeBytes(compressedDictionaryData)
+            currentOffset += compressedDictionaryData.size
+            dictionaryPageSizeWithHeader = dictPageHeaderBytes.size.toLong() + compressedDictionaryData.size
         } else {
             dictionaryPageOffset = null
         }
@@ -591,6 +600,9 @@ class ParquetWriter(
 
         val encodings = mutableListOf(Encoding.RLE)
         if (preparedData.dictionaryPageData != null) {
+            // Dictionary-encoded chunks use PLAIN for dictionary page values and
+            // RLE_DICTIONARY for data page indices.
+            encodings.add(Encoding.PLAIN)
             encodings.add(Encoding.RLE_DICTIONARY)
         } else {
             encodings.add(preparedData.encoding)

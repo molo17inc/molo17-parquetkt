@@ -233,7 +233,16 @@ object ThriftSerializer {
         // Field 9: data_page_offset (i64)
         writeFieldBegin(writer, 9, lastFieldId, ThriftType.I64)
         writer.writeVarLong(zigzagEncode(metadata.dataPageOffset))
-        
+        lastFieldId = 9
+
+        // Field 10: index_page_offset (i64) - optional (unused)
+
+        // Field 11: dictionary_page_offset (i64) - optional
+        if (metadata.dictionaryPageOffset != null) {
+            writeFieldBegin(writer, 11, lastFieldId, ThriftType.I64)
+            writer.writeVarLong(zigzagEncode(metadata.dictionaryPageOffset))
+        }
+
         // Stop field
         writer.writeByte(0)
     }

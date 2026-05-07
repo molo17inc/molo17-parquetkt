@@ -108,11 +108,11 @@ class DictionaryEncodingCompatibilityTest {
                     encodings.contains(Encoding.RLE),
                     "Column $columnName should have RLE encoding for definition levels"
                 )
-                
-                // Should NOT have PLAIN encoding when dictionary is used
-                assertFalse(
+
+                // Dictionary page values are PLAIN-encoded per Parquet spec
+                assertTrue(
                     encodings.contains(Encoding.PLAIN),
-                    "Column $columnName should not list PLAIN encoding when using dictionary"
+                    "Column $columnName should list PLAIN encoding for dictionary page values"
                 )
             }
             
