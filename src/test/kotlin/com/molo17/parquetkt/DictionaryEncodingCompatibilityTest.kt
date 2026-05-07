@@ -102,7 +102,7 @@ class DictionaryEncodingCompatibilityTest {
                     encodings.contains(Encoding.RLE_DICTIONARY),
                     "String column $columnName should use RLE_DICTIONARY encoding"
                 )
-                
+
                 // Should have RLE for levels and RLE_DICTIONARY for data
                 assertTrue(
                     encodings.contains(Encoding.RLE),
@@ -172,16 +172,16 @@ class DictionaryEncodingCompatibilityTest {
         val stringColumns = fileMetadata.rowGroups.first().columns.filter {
             it.metaData.type == ParquetType.BYTE_ARRAY
         }
-        
+
         for (column in stringColumns) {
             assertTrue(
                 column.metaData.encodings.contains(Encoding.RLE_DICTIONARY),
                 "String columns should use dictionary encoding for repetitive data"
             )
         }
-        
+
         reader.close()
-        
+
         println("✅ Dictionary encoding is being used for repetitive data")
     }
     

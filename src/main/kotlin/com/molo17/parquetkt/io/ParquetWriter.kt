@@ -428,7 +428,7 @@ class ParquetWriter(
         )
         
         val columnChunk = ColumnChunk(
-            fileOffset = 0,  // Deprecated field, should be 0
+            fileOffset = startOffset,
             metaData = columnMetadata
         )
         
@@ -622,7 +622,7 @@ class ParquetWriter(
         )
         
         val columnChunk = ColumnChunk(
-            fileOffset = 0,
+            fileOffset = startOffset,
             metaData = columnMetadata
         )
         

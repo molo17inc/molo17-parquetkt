@@ -32,7 +32,7 @@ class PyArrowPerTestVerificationExtension : BeforeEachCallback, AfterEachCallbac
         val candidates = collectCandidateParquetFiles(context, startTime)
 
         candidates.forEach { file ->
-            if (isReadableByParquetKt(file) && !usesDictionaryEncoding(file)) {
+            if (isReadableByParquetKt(file)) {
                 verifyWithPyArrow(file)
             }
         }
@@ -103,25 +103,6 @@ class PyArrowPerTestVerificationExtension : BeforeEachCallback, AfterEachCallbac
             true
         } catch (_: Exception) {
             false
-        }
-    }
-
-    private fun usesDictionaryEncoding(file: File): Boolean {
-        return try {
-            ParquetReader.open(file).use { reader ->
-                val fileMetadata = reader.javaClass.getDeclaredField("fileMetadata").let {
-                    it.isAccessible = true
-                    it.get(reader) as com.molo17.parquetkt.thrift.FileMetaData
-                }
-                fileMetadata.rowGroups.any { rowGroup ->
-                    rowGroup.columns.any { columnChunk ->
-                        columnChunk.metaData.encodings.contains(com.molo17.parquetkt.schema.Encoding.RLE_DICTIONARY)
-                    }
-                }
-            }
-        } catch (_: Exception) {
-            // If metadata cannot be inspected reliably, skip PyArrow verification for safety.
-            true
         }
     }
 

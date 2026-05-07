@@ -400,9 +400,9 @@ object ThriftDeserializer {
                 5 -> numValues = reader.readInt64Zigzag()
                 6 -> totalUncompressedSize = reader.readInt64Zigzag()
                 7 -> totalCompressedSize = reader.readInt64Zigzag()
-                8 -> statistics = readStatistics(reader)
                 9 -> dataPageOffset = reader.readInt64Zigzag()
                 11 -> dictionaryPageOffset = reader.readInt64Zigzag()
+                12 -> statistics = readStatistics(reader)
                 else -> skipField(reader, fieldType)
             }
         }

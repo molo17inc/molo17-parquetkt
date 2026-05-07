@@ -101,8 +101,8 @@ class StatisticsTest {
         val file = File(tempDir, "stats_test.parquet")
         
         val schema = ParquetSchema.create(
-            DataField.int32("age"),
-            DataField.string("name")
+            DataField.int32("age", nullable = true),
+            DataField.string("name", nullable = true)
         )
         
         val writer = ParquetWriter(file.absolutePath, schema)
