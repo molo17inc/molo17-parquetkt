@@ -1,6 +1,8 @@
 # MOLO17 ParquetKt
 
-A fully managed, pure Kotlin library for reading and writing Apache Parquet files. This is a port of the excellent [parquet-dotnet](https://github.com/aloneguid/parquet-dotnet) library from C# to Kotlin.
+![ParquetKt logo](assets/logo.svg)
+
+A fully managed, pure Kotlin library for reading and writing Apache Parquet files. This project takes inspiration from the excellent [parquet-dotnet](https://github.com/aloneguid/parquet-dotnet) library.
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
 [![Test Coverage](https://img.shields.io/badge/tests-128%20passing-brightgreen)](https://gitlab.com/molo17-public/gluesync/molo17-parquetkt)
