@@ -1,0 +1,25 @@
+name: Mirror from GitLab
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror GitLab repository to GitHub
+        env:
+          SOURCE_REPO: https://gitlab.com/molo17-public/gluesync/molo17-parquetkt.git
+          TARGET_REPO: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          git clone --mirror "$SOURCE_REPO" "$tmpdir/source.git"
+          cd "$tmpdir/source.git"
+          git remote set-url --push origin "$TARGET_REPO"
+          git push --mirror origin
